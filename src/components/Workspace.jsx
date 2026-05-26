@@ -16,8 +16,11 @@ import {
   useTypes,
   useSaveState,
   useEnums,
+  useViews,
 } from "../hooks";
 import FloatingControls from "./FloatingControls";
+import TabBar from "./EditorCanvas/TabBar";
+import ViewsContextProvider from "../context/ViewsContext";
 import { Button, Modal, Tag } from "@douyinfe/semi-ui";
 import { IconAlertTriangle } from "@douyinfe/semi-icons";
 import { useTranslation } from "react-i18next";
@@ -42,7 +45,16 @@ export const IdContext = createContext({
 
 const SIDEPANEL_MIN_WIDTH = 384;
 
+// Outer shell: provides ViewsContext so WorkSpaceInner can call useViews().
 export default function WorkSpace() {
+  return (
+    <ViewsContextProvider>
+      <WorkSpaceInner />
+    </ViewsContextProvider>
+  );
+}
+
+function WorkSpaceInner() {
   const [gistId, setGistId] = useState("");
   const [version, setVersion] = useState("");
   const [loadedFromGistId, setLoadedFromGistId] = useState("");
@@ -70,6 +82,7 @@ export default function WorkSpace() {
     setDatabase,
   } = useDiagram();
   const { undoStack, redoStack, setUndoStack, setRedoStack } = useUndoRedo();
+  const { views, setViews, activeViewId, setActiveViewId } = useViews();
   const { t, i18n } = useTranslation();
   let [searchParams, setSearchParams] = useSearchParams();
   const { id: loadedDiagramId } = useParams();
@@ -90,6 +103,33 @@ export default function WorkSpace() {
       setSearchParams(searchParams, { replace: true });
     }
 
+    // Snapshot the active view from live context state (ViewsContext.views may
+    // lag behind the domain contexts between tab switches and saves).
+    const activeSnapshot = {
+      tables,
+      references: relationships,
+      notes,
+      areas,
+      pan: transform.pan,
+      zoom: transform.zoom,
+      ...(databases[database].hasEnums && { enums }),
+      ...(databases[database].hasTypes && { types }),
+    };
+
+    // Guard for the first-ever save before load() has populated ViewsContext.
+    let savedViews;
+    let savedActiveViewId;
+    if (!views.length || !activeViewId) {
+      const viewId = crypto.randomUUID();
+      savedActiveViewId = viewId;
+      savedViews = [{ id: viewId, name: "Main", ...activeSnapshot }];
+    } else {
+      savedActiveViewId = activeViewId;
+      savedViews = views.map((v) =>
+        v.id === activeViewId ? { ...v, ...activeSnapshot } : v,
+      );
+    }
+
     if (isTemplate || (!loadedDiagramId && !isTemplate && !isDiagram)) {
       const diagramId = crypto.randomUUID();
       await db.diagrams
@@ -99,15 +139,9 @@ export default function WorkSpace() {
           name: title,
           gistId: gistId ?? "",
           lastModified: new Date(),
-          tables: tables,
-          references: relationships,
-          notes: notes,
-          areas: areas,
-          pan: transform.pan,
-          zoom: transform.zoom,
           loadedFromGistId: loadedFromGistId,
-          ...(databases[database].hasEnums && { enums: enums }),
-          ...(databases[database].hasTypes && { types: types }),
+          activeViewId: savedActiveViewId,
+          views: savedViews,
         })
         .then(() => {
           navigate(`/editor/diagrams/${diagramId}`, { replace: true });
@@ -122,16 +156,10 @@ export default function WorkSpace() {
           database: database,
           name: title,
           lastModified: new Date(),
-          tables: tables,
-          references: relationships,
-          notes: notes,
-          areas: areas,
           gistId: gistId ?? "",
-          pan: transform.pan,
-          zoom: transform.zoom,
           loadedFromGistId: loadedFromGistId,
-          ...(databases[database].hasEnums && { enums: enums }),
-          ...(databases[database].hasTypes && { types: types }),
+          activeViewId: savedActiveViewId,
+          views: savedViews,
         })
         .then(() => {
           setSaveState(State.SAVED);
@@ -157,54 +185,99 @@ export default function WorkSpace() {
     isTemplate,
     loadedDiagramId,
     navigate,
+    views,
+    activeViewId,
   ]);
 
   const load = useCallback(async () => {
+    // Builds a synthetic single-view from a flat legacy/template/gist payload.
+    const makeSyntheticView = (payload) => {
+      const viewId = crypto.randomUUID();
+      return {
+        id: viewId,
+        name: "Main",
+        tables: payload.tables ?? [],
+        references: payload.references ?? [],
+        notes: payload.notes ?? [],
+        areas: payload.areas ?? [],
+        pan: payload.pan ?? { x: 0, y: 0 },
+        zoom: payload.zoom ?? 1,
+        ...(payload.types !== undefined && { types: payload.types }),
+        ...(payload.enums !== undefined && { enums: payload.enums }),
+      };
+    };
+
+    // Hydrates domain contexts + ViewsContext from a views[] array.
+    const applyViews = (diagramViews, diagramActiveViewId, dbType) => {
+      const activeView =
+        diagramViews.find((v) => v.id === diagramActiveViewId) ??
+        diagramViews[0];
+
+      setViews(diagramViews);
+      setActiveViewId(activeView.id);
+      setTables(activeView.tables ?? []);
+      setRelationships(activeView.references ?? []);
+      setNotes(activeView.notes ?? []);
+      setAreas(activeView.areas ?? []);
+      setTransform({
+        pan: activeView.pan ?? { x: 0, y: 0 },
+        zoom: activeView.zoom ?? 1,
+      });
+
+      if (databases[dbType].hasTypes) {
+        if (activeView.types) {
+          setTypes(
+            activeView.types.map((t) =>
+              t.id
+                ? t
+                : {
+                    ...t,
+                    id: nanoid(),
+                    fields: t.fields.map((f) =>
+                      f.id ? f : { ...f, id: nanoid() },
+                    ),
+                  },
+            ),
+          );
+        } else {
+          setTypes([]);
+        }
+      }
+      if (databases[dbType].hasEnums) {
+        setEnums(
+          (activeView.enums ?? []).map((e) =>
+            !e.id ? { ...e, id: nanoid() } : e,
+          ),
+        );
+      }
+    };
+
     const loadLatestDiagram = async () => {
       await db.diagrams
         .orderBy("lastModified")
         .last()
         .then((diagram) => {
           if (diagram) {
-            if (diagram.database) {
-              setDatabase(diagram.database);
-            } else {
-              setDatabase(DB.GENERIC);
-            }
+            const dbType = diagram.database ?? DB.GENERIC;
+            setDatabase(dbType);
             setGistId(diagram.gistId);
             setLoadedFromGistId(diagram.loadedFromGistId);
             setTitle(diagram.name);
-            setTables(diagram.tables);
-            setRelationships(diagram.references);
-            setNotes(diagram.notes);
-            setAreas(diagram.areas);
-            setTransform({ pan: diagram.pan, zoom: diagram.zoom });
-            if (databases[database].hasTypes) {
-              if (diagram.types) {
-                setTypes(
-                  diagram.types.map((t) =>
-                    t.id
-                      ? t
-                      : {
-                          ...t,
-                          id: nanoid(),
-                          fields: t.fields.map((f) =>
-                            f.id ? f : { ...f, id: nanoid() },
-                          ),
-                        },
-                  ),
-                );
-              } else {
-                setTypes([]);
-              }
+
+            // Defensive fallback: migration guarantees views[], but guard anyway.
+            let diagramViews = diagram.views;
+            let diagramActiveViewId = diagram.activeViewId;
+            if (!diagramViews || diagramViews.length === 0) {
+              const v = makeSyntheticView({
+                ...diagram,
+                enums: diagram.enums,
+                types: diagram.types,
+              });
+              diagramViews = [v];
+              diagramActiveViewId = v.id;
             }
-            if (databases[database].hasEnums) {
-              setEnums(
-                diagram.enums.map((e) =>
-                  !e.id ? { ...e, id: nanoid() } : e,
-                ) ?? [],
-              );
-            }
+
+            applyViews(diagramViews, diagramActiveViewId, dbType);
             navigate(`/editor/diagrams/${diagram.diagramId}`, {
               replace: true,
             });
@@ -222,48 +295,28 @@ export default function WorkSpace() {
 
       if (!diagram) return;
 
-      if (diagram.database) {
-        setDatabase(diagram.database);
-      } else {
-        setDatabase(DB.GENERIC);
-      }
+      const dbType = diagram.database ?? DB.GENERIC;
+      setDatabase(dbType);
       setGistId(diagram.gistId);
       setLoadedFromGistId(diagram.loadedFromGistId);
       setTitle(diagram.name);
-      setTables(diagram.tables);
-      setRelationships(diagram.references);
-      setAreas(diagram.areas);
-      setNotes(diagram.notes);
-      setTransform({
-        pan: diagram.pan,
-        zoom: diagram.zoom,
-      });
       setUndoStack([]);
       setRedoStack([]);
-      if (databases[database].hasTypes) {
-        if (diagram.types) {
-          setTypes(
-            diagram.types.map((t) =>
-              t.id
-                ? t
-                : {
-                    ...t,
-                    id: nanoid(),
-                    fields: t.fields.map((f) =>
-                      f.id ? f : { ...f, id: nanoid() },
-                    ),
-                  },
-            ),
-          );
-        } else {
-          setTypes([]);
-        }
+
+      // Defensive fallback: migration guarantees views[], but guard anyway.
+      let diagramViews = diagram.views;
+      let diagramActiveViewId = diagram.activeViewId;
+      if (!diagramViews || diagramViews.length === 0) {
+        const v = makeSyntheticView({
+          ...diagram,
+          enums: diagram.enums,
+          types: diagram.types,
+        });
+        diagramViews = [v];
+        diagramActiveViewId = v.id;
       }
-      if (databases[database].hasEnums) {
-        setEnums(
-          diagram.enums.map((e) => (!e.id ? { ...e, id: nanoid() } : e)) ?? [],
-        );
-      }
+
+      applyViews(diagramViews, diagramActiveViewId, dbType);
     };
 
     const loadTemplate = async (id) => {
@@ -273,47 +326,57 @@ export default function WorkSpace() {
         .first();
 
       if (template) {
-        if (template.database) {
-          setDatabase(template.database);
-        } else {
-          setDatabase(DB.GENERIC);
-        }
+        const dbType = template.database ?? DB.GENERIC;
+        setDatabase(dbType);
         setTitle(template.title);
-        setTables(template.tables);
-        setRelationships(template.relationships);
-        setAreas(template.subjectAreas);
-        setNotes(template.notes);
-        setTransform({
-          zoom: 1,
-          pan: { x: 0, y: 0 },
-        });
         setUndoStack([]);
         setRedoStack([]);
-        if (databases[database].hasTypes) {
-          if (template.types) {
-            setTypes(
-              template.types.map((t) =>
-                t.id
-                  ? t
-                  : {
-                      ...t,
-                      id: nanoid(),
-                      fields: t.fields.map((f) =>
-                        f.id ? f : { ...f, id: nanoid() },
-                      ),
-                    },
-              ),
-            );
-          } else {
-            setTypes([]);
-          }
-        }
-        if (databases[database].hasEnums) {
-          setEnums(
-            template.enums.map((e) => (!e.id ? { ...e, id: nanoid() } : e)) ??
-              [],
+
+        let viewTypes = [];
+        let viewEnums = [];
+        if (databases[dbType].hasTypes && template.types) {
+          viewTypes = template.types.map((t) =>
+            t.id
+              ? t
+              : {
+                  ...t,
+                  id: nanoid(),
+                  fields: t.fields.map((f) =>
+                    f.id ? f : { ...f, id: nanoid() },
+                  ),
+                },
           );
         }
+        if (databases[dbType].hasEnums && template.enums) {
+          viewEnums = template.enums.map((e) =>
+            !e.id ? { ...e, id: nanoid() } : e,
+          );
+        }
+
+        // Templates use subjectAreas/relationships — build a synthetic view.
+        const viewId = crypto.randomUUID();
+        const syntheticView = {
+          id: viewId,
+          name: "Main",
+          tables: template.tables ?? [],
+          references: template.relationships ?? [],
+          notes: template.notes ?? [],
+          areas: template.subjectAreas ?? [],
+          pan: { x: 0, y: 0 },
+          zoom: 1,
+          ...(databases[dbType].hasTypes && { types: viewTypes }),
+          ...(databases[dbType].hasEnums && { enums: viewEnums }),
+        };
+
+        setViews([syntheticView]);
+        setActiveViewId(viewId);
+        setTables(syntheticView.tables);
+        setRelationships(syntheticView.references);
+        setAreas(syntheticView.areas);
+        setNotes(syntheticView.notes);
+        setTransform({ zoom: 1, pan: { x: 0, y: 0 } });
+        setTypes(viewTypes);
+        setEnums(viewEnums);
       } else {
         if (selectedDb === "") setShowSelectDbModal(true);
       }
@@ -323,43 +386,60 @@ export default function WorkSpace() {
       try {
         const { data } = await get(shareId);
         const parsedDiagram = JSON.parse(data.files[SHARE_FILENAME].content);
+        const dbType = parsedDiagram.database;
+
+        let viewTypes = [];
+        let viewEnums = [];
+        if (databases[dbType].hasTypes && parsedDiagram.types) {
+          viewTypes = parsedDiagram.types.map((t) =>
+            t.id
+              ? t
+              : {
+                  ...t,
+                  id: nanoid(),
+                  fields: t.fields.map((f) =>
+                    f.id ? f : { ...f, id: nanoid() },
+                  ),
+                },
+          );
+        }
+        if (databases[dbType].hasEnums && parsedDiagram.enums) {
+          viewEnums = parsedDiagram.enums.map((e) =>
+            !e.id ? { ...e, id: nanoid() } : e,
+          );
+        }
+
+        // Gists use subjectAreas/relationships — build a synthetic view.
+        const viewId = crypto.randomUUID();
+        const syntheticView = {
+          id: viewId,
+          name: "Main",
+          tables: parsedDiagram.tables ?? [],
+          references: parsedDiagram.relationships ?? [],
+          notes: parsedDiagram.notes ?? [],
+          areas: parsedDiagram.subjectAreas ?? [],
+          pan: parsedDiagram.transform?.pan ?? { x: 0, y: 0 },
+          zoom: parsedDiagram.transform?.zoom ?? 1,
+          ...(databases[dbType].hasTypes && { types: viewTypes }),
+          ...(databases[dbType].hasEnums && { enums: viewEnums }),
+        };
+
         setUndoStack([]);
         setRedoStack([]);
         setGistId(shareId);
         setLoadedFromGistId(shareId);
-        setDatabase(parsedDiagram.database);
+        setDatabase(dbType);
         setTitle(parsedDiagram.title);
-        setTables(parsedDiagram.tables);
-        setRelationships(parsedDiagram.relationships);
-        setNotes(parsedDiagram.notes);
-        setAreas(parsedDiagram.subjectAreas);
-        setTransform(parsedDiagram.transform);
-        if (databases[parsedDiagram.database].hasTypes) {
-          if (parsedDiagram.types) {
-            setTypes(
-              parsedDiagram.types.map((t) =>
-                t.id
-                  ? t
-                  : {
-                      ...t,
-                      id: nanoid(),
-                      fields: t.fields.map((f) =>
-                        f.id ? f : { ...f, id: nanoid() },
-                      ),
-                    },
-              ),
-            );
-          } else {
-            setTypes([]);
-          }
-        }
-        if (databases[parsedDiagram.database].hasEnums) {
-          setEnums(
-            parsedDiagram.enums.map((e) =>
-              !e.id ? { ...e, id: nanoid() } : e,
-            ) ?? [],
-          );
-        }
+        setViews([syntheticView]);
+        setActiveViewId(viewId);
+        setTables(syntheticView.tables);
+        setRelationships(syntheticView.references);
+        setNotes(syntheticView.notes);
+        setAreas(syntheticView.areas);
+        setTransform({ pan: syntheticView.pan, zoom: syntheticView.zoom });
+        setTypes(viewTypes);
+        setEnums(viewEnums);
+
         if (parsedDiagram.customTypes) {
           mergeCustomTypes(parsedDiagram.customTypes);
         }
@@ -408,7 +488,6 @@ export default function WorkSpace() {
     setNotes,
     setTypes,
     setDatabase,
-    database,
     setEnums,
     selectedDb,
     setSaveState,
@@ -417,6 +496,8 @@ export default function WorkSpace() {
     isDiagram,
     isTemplate,
     loadedDiagramId,
+    setViews,
+    setActiveViewId,
   ]);
 
   const returnToCurrentDiagram = async () => {
@@ -491,32 +572,35 @@ export default function WorkSpace() {
         {layout.sidebar && (
           <SidePanel resize={resize} setResize={setResize} width={width} />
         )}
-        <div className="relative w-full h-full overflow-hidden">
-          <CanvasContextProvider className="h-full w-full">
-            <Canvas saveState={saveState} setSaveState={setSaveState} />
-          </CanvasContextProvider>
-          {version && (
-            <div className="absolute right-8 top-2 space-x-2">
-              <Button
-                icon={<i className="fa-solid fa-rotate-right mt-0.5"></i>}
-                onClick={() => setShowRestoreModal(true)}
-              >
-                {t("restore_version")}
-              </Button>
-              <Button
-                type="tertiary"
-                onClick={returnToCurrentDiagram}
-                icon={<i className="bi bi-arrow-return-right mt-1"></i>}
-              >
-                {t("return_to_current")}
-              </Button>
-            </div>
-          )}
-          {!(layout.sidebar || layout.toolbar || layout.header) && (
-            <div className="fixed right-5 bottom-4">
-              <FloatingControls />
-            </div>
-          )}
+        <div className="flex flex-col w-full h-full overflow-hidden">
+          <div className="relative flex-1 min-h-0 overflow-hidden">
+            <CanvasContextProvider className="h-full w-full">
+              <Canvas saveState={saveState} setSaveState={setSaveState} />
+            </CanvasContextProvider>
+            {version && (
+              <div className="absolute right-8 top-2 space-x-2">
+                <Button
+                  icon={<i className="fa-solid fa-rotate-right mt-0.5"></i>}
+                  onClick={() => setShowRestoreModal(true)}
+                >
+                  {t("restore_version")}
+                </Button>
+                <Button
+                  type="tertiary"
+                  onClick={returnToCurrentDiagram}
+                  icon={<i className="bi bi-arrow-return-right mt-1"></i>}
+                >
+                  {t("return_to_current")}
+                </Button>
+              </div>
+            )}
+            {!(layout.sidebar || layout.toolbar || layout.header) && (
+              <div className="fixed right-5 bottom-4">
+                <FloatingControls />
+              </div>
+            )}
+          </div>
+          <TabBar />
         </div>
       </div>
       <Modal
