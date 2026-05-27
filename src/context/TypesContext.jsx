@@ -28,6 +28,8 @@ export default function TypesContextProvider({ children }) {
           name: `type_${prev.length}`,
           fields: [],
           comment: "",
+          descriptionFr: "",
+          descriptionEn: "",
         },
       ]);
     }

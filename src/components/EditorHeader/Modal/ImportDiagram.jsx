@@ -38,6 +38,27 @@ export default function ImportDiagram({
     );
   };
 
+  // Checks that every relationship in a (tables, relationships) pair references
+  // existing tables and fields. Returns null on success or an error message.
+  const validateRelationships = (viewTables, viewRelationships) => {
+    for (const rel of viewRelationships) {
+      const startTable = viewTables.find((t) => t.id === rel.startTableId);
+      const endTable = viewTables.find((t) => t.id === rel.endTableId);
+
+      if (!startTable || !endTable) {
+        return `Relationship ${rel.name} references a table that does not exist.`;
+      }
+
+      if (
+        !startTable.fields.find((f) => f.id === rel.startFieldId) ||
+        !endTable.fields.find((f) => f.id === rel.endFieldId)
+      ) {
+        return `Relationship ${rel.name} references a field that does not exist.`;
+      }
+    }
+    return null;
+  };
+
   const loadJsonData = (file, e) => {
     let jsonObject = null;
     try {
@@ -50,16 +71,31 @@ export default function ImportDiagram({
       return;
     }
 
-    if (file.type === "application/json") {
-      if (!jsonDiagramIsValid(jsonObject)) {
-        setError({
-          type: STATUS.ERROR,
-          message: "The file is missing necessary properties for a diagram.",
-        });
-        return;
+    const isViewsShape = Array.isArray(jsonObject.views);
+
+    if (!isViewsShape) {
+      if (file.type === "application/json") {
+        if (!jsonDiagramIsValid(jsonObject)) {
+          setError({
+            type: STATUS.ERROR,
+            message: "The file is missing necessary properties for a diagram.",
+          });
+          return;
+        }
+      } else if (file.name.split(".").pop() === "ddb") {
+        if (!ddbDiagramIsValid(jsonObject)) {
+          setError({
+            type: STATUS.ERROR,
+            message: "The file is missing necessary properties for a diagram.",
+          });
+          return;
+        }
       }
-    } else if (file.name.split(".").pop() === "ddb") {
-      if (!ddbDiagramIsValid(jsonObject)) {
+    } else {
+      const validShape = jsonObject.views.every(
+        (v) => Array.isArray(v.tables) && Array.isArray(v.relationships),
+      );
+      if (!validShape) {
         setError({
           type: STATUS.ERROR,
           message: "The file is missing necessary properties for a diagram.",
@@ -81,36 +117,24 @@ export default function ImportDiagram({
       return;
     }
 
-    let ok = true;
-    jsonObject.relationships.forEach((rel) => {
-      const startTable = jsonObject.tables.find(
-        (t) => t.id === rel.startTableId,
+    if (isViewsShape) {
+      for (const view of jsonObject.views) {
+        const errMsg = validateRelationships(view.tables, view.relationships);
+        if (errMsg) {
+          setError({ type: STATUS.ERROR, message: errMsg });
+          return;
+        }
+      }
+    } else {
+      const errMsg = validateRelationships(
+        jsonObject.tables,
+        jsonObject.relationships,
       );
-      const endTable = jsonObject.tables.find((t) => t.id === rel.endTableId);
-
-      if (!startTable || !endTable) {
-        setError({
-          type: STATUS.ERROR,
-          message: `Relationship ${rel.name} references a table that does not exist.`,
-        });
-        ok = false;
+      if (errMsg) {
+        setError({ type: STATUS.ERROR, message: errMsg });
         return;
       }
-
-      if (
-        !startTable.fields.find((f) => f.id === rel.startFieldId) ||
-        !endTable.fields.find((f) => f.id === rel.endFieldId)
-      ) {
-        setError({
-          type: STATUS.ERROR,
-          message: `Relationship ${rel.name} references a field that does not exist.`,
-        });
-        ok = false;
-        return;
-      }
-    });
-
-    if (!ok) return;
+    }
 
     setImportData(jsonObject);
     if (diagramIsEmpty()) {

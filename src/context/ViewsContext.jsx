@@ -3,8 +3,6 @@ import {
   useDiagram,
   useAreas,
   useNotes,
-  useTypes,
-  useEnums,
   useTransform,
   useUndoRedo,
 } from "../hooks";
@@ -18,12 +16,11 @@ export default function ViewsContextProvider({ children }) {
   const { tables, relationships, setTables, setRelationships } = useDiagram();
   const { areas, setAreas } = useAreas();
   const { notes, setNotes } = useNotes();
-  const { types, setTypes } = useTypes();
-  const { enums, setEnums } = useEnums();
   const { transform, setTransform } = useTransform();
   const { setUndoStack, setRedoStack } = useUndoRedo();
 
   // Captures the current context state as a view payload.
+  // Types/enums are diagram-global and persisted at the top level — not here.
   const snapshotActive = () => ({
     tables,
     references: relationships,
@@ -31,19 +28,16 @@ export default function ViewsContextProvider({ children }) {
     areas,
     pan: transform.pan,
     zoom: transform.zoom,
-    types,
-    enums,
   });
 
   // Pushes a view payload into all domain contexts and resets undo/redo.
+  // Types/enums are left untouched: they are diagram-global, not per-view.
   const hydrateContexts = (view) => {
     setTables(view.tables ?? []);
     setRelationships(view.references ?? []);
     setNotes(view.notes ?? []);
     setAreas(view.areas ?? []);
     setTransform({ pan: view.pan ?? { x: 0, y: 0 }, zoom: view.zoom ?? 1 });
-    setTypes(view.types ?? []);
-    setEnums(view.enums ?? []);
     setUndoStack([]);
     setRedoStack([]);
   };
@@ -77,8 +71,6 @@ export default function ViewsContextProvider({ children }) {
       areas: [],
       pan: { x: 0, y: 0 },
       zoom: 1,
-      types: [],
-      enums: [],
     };
     const updated = views.map((v) =>
       v.id === activeViewId ? { ...v, ...snapshot } : v,

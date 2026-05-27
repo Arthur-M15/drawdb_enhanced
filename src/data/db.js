@@ -58,6 +58,52 @@ db.version(68)
     });
   });
 
+db.version(69)
+  .stores({
+    diagrams: "++id, lastModified, loadedFromGistId, diagramId",
+    templates: "++id, custom, templateId",
+  })
+  .upgrade(async (tx) => {
+    await tx.diagrams.toCollection().modify((diagram) => {
+      if (!Array.isArray(diagram.views) || diagram.views.length === 0) return;
+
+      const hasNestedTypes = diagram.views.some(
+        (v) => v && v.types !== undefined,
+      );
+      const hasNestedEnums = diagram.views.some(
+        (v) => v && v.enums !== undefined,
+      );
+      if (!hasNestedTypes && !hasNestedEnums) return; // already hoisted — skip
+
+      if (diagram.types === undefined && hasNestedTypes) {
+        const firstWithTypes = diagram.views.find(
+          (v) => Array.isArray(v.types) && v.types.length > 0,
+        );
+        diagram.types =
+          firstWithTypes?.types ??
+          diagram.views.find((v) => v.types !== undefined)?.types ??
+          [];
+      }
+      if (diagram.enums === undefined && hasNestedEnums) {
+        const firstWithEnums = diagram.views.find(
+          (v) => Array.isArray(v.enums) && v.enums.length > 0,
+        );
+        diagram.enums =
+          firstWithEnums?.enums ??
+          diagram.views.find((v) => v.enums !== undefined)?.enums ??
+          [];
+      }
+
+      diagram.views = diagram.views.map((v) => {
+        if (!v) return v;
+        const rest = { ...v };
+        delete rest.types;
+        delete rest.enums;
+        return rest;
+      });
+    });
+  });
+
 db.on("populate", (transaction) => {
   transaction.templates.bulkAdd(templateSeeds).catch((e) => console.log(e));
 });

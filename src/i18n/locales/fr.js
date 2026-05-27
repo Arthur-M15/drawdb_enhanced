@@ -120,6 +120,8 @@ const fr = {
     check: "Expression de vérification",
     this_will_appear_as_is: "*Ceci apparaîtra tel quel dans le script généré.",
     comment: "Commentaire",
+    additional_description: "Description complémentaire",
+    english_description: "Description anglaise",
     add_field: "Ajouter un champ",
     values: "Valeurs",
     size: "Taille",

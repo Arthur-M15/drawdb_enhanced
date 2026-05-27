@@ -242,6 +242,79 @@ export default function TableInfo({ data }) {
               }}
             />
           </Collapse.Panel>
+          <Collapse.Panel
+            header={t("additional_description")}
+            itemKey="2"
+          >
+            <TextArea
+              field="descriptionFr"
+              value={data.descriptionFr ?? ""}
+              readonly={layout.readOnly}
+              autosize
+              placeholder={t("additional_description")}
+              rows={1}
+              onChange={(value) =>
+                updateTable(data.id, { descriptionFr: value }, false)
+              }
+              onFocus={(e) =>
+                setEditField({ descriptionFr: e.target.value })
+              }
+              onBlur={(e) => {
+                if (e.target.value === editField.descriptionFr) return;
+                setUndoStack((prev) => [
+                  ...prev,
+                  {
+                    action: Action.EDIT,
+                    element: ObjectType.TABLE,
+                    component: "self",
+                    tid: data.id,
+                    undo: editField,
+                    redo: { descriptionFr: e.target.value },
+                    message: t("edit_table", {
+                      tableName: data.name,
+                      extra: "[descriptionFr]",
+                    }),
+                  },
+                ]);
+                setRedoStack([]);
+              }}
+            />
+          </Collapse.Panel>
+          <Collapse.Panel header={t("english_description")} itemKey="3">
+            <TextArea
+              field="descriptionEn"
+              value={data.descriptionEn ?? ""}
+              readonly={layout.readOnly}
+              autosize
+              placeholder={t("english_description")}
+              rows={1}
+              onChange={(value) =>
+                updateTable(data.id, { descriptionEn: value }, false)
+              }
+              onFocus={(e) =>
+                setEditField({ descriptionEn: e.target.value })
+              }
+              onBlur={(e) => {
+                if (e.target.value === editField.descriptionEn) return;
+                setUndoStack((prev) => [
+                  ...prev,
+                  {
+                    action: Action.EDIT,
+                    element: ObjectType.TABLE,
+                    component: "self",
+                    tid: data.id,
+                    undo: editField,
+                    redo: { descriptionEn: e.target.value },
+                    message: t("edit_table", {
+                      tableName: data.name,
+                      extra: "[descriptionEn]",
+                    }),
+                  },
+                ]);
+                setRedoStack([]);
+              }}
+            />
+          </Collapse.Panel>
         </Collapse>
       </Card>
 
@@ -322,6 +395,8 @@ export default function TableInfo({ data }) {
                     notNull: false,
                     increment: false,
                     comment: "",
+                    descriptionFr: "",
+                    descriptionEn: "",
                   },
                 ],
               });

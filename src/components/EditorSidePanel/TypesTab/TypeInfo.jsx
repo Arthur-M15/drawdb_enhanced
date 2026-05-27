@@ -131,6 +131,79 @@ export default function TypeInfo({ index, data }) {
                 }}
               />
             </Collapse.Panel>
+            <Collapse.Panel
+              header={t("additional_description")}
+              itemKey="2"
+            >
+              <TextArea
+                field="descriptionFr"
+                value={data.descriptionFr ?? ""}
+                autosize
+                readonly={layout.readOnly}
+                placeholder={t("additional_description")}
+                rows={1}
+                onChange={(value) =>
+                  updateType(typeId, { descriptionFr: value }, false)
+                }
+                onFocus={(e) =>
+                  setEditField({ descriptionFr: e.target.value })
+                }
+                onBlur={(e) => {
+                  if (e.target.value === editField.descriptionFr) return;
+                  setUndoStack((prev) => [
+                    ...prev,
+                    {
+                      action: Action.EDIT,
+                      element: ObjectType.TYPE,
+                      component: "self",
+                      tid: typeId,
+                      undo: editField,
+                      redo: { descriptionFr: e.target.value },
+                      message: t("edit_type", {
+                        typeName: data.name,
+                        extra: "[descriptionFr]",
+                      }),
+                    },
+                  ]);
+                  setRedoStack([]);
+                }}
+              />
+            </Collapse.Panel>
+            <Collapse.Panel header={t("english_description")} itemKey="3">
+              <TextArea
+                field="descriptionEn"
+                value={data.descriptionEn ?? ""}
+                autosize
+                readonly={layout.readOnly}
+                placeholder={t("english_description")}
+                rows={1}
+                onChange={(value) =>
+                  updateType(typeId, { descriptionEn: value }, false)
+                }
+                onFocus={(e) =>
+                  setEditField({ descriptionEn: e.target.value })
+                }
+                onBlur={(e) => {
+                  if (e.target.value === editField.descriptionEn) return;
+                  setUndoStack((prev) => [
+                    ...prev,
+                    {
+                      action: Action.EDIT,
+                      element: ObjectType.TYPE,
+                      component: "self",
+                      tid: typeId,
+                      undo: editField,
+                      redo: { descriptionEn: e.target.value },
+                      message: t("edit_type", {
+                        typeName: data.name,
+                        extra: "[descriptionEn]",
+                      }),
+                    },
+                  ]);
+                  setRedoStack([]);
+                }}
+              />
+            </Collapse.Panel>
           </Collapse>
         </Card>
         <Row gutter={6} className="mt-2">

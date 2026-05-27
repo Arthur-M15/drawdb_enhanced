@@ -15,6 +15,7 @@ import {
   useTransform,
   useTypes,
   useUndoRedo,
+  useViews,
 } from "../../../hooks";
 import { isRtl } from "../../../i18n/utils/rtl";
 import { importSQL } from "../../../utils/importSQL";
@@ -60,6 +61,7 @@ export default function Modal({
   const { setEnums } = useEnums();
   const { setTransform } = useTransform();
   const { setUndoStack, setRedoStack } = useUndoRedo();
+  const { setViews, setActiveViewId } = useViews();
   const { settings, setSettings } = useSettings();
   const [uncontrolledTitle, setUncontrolledTitle] = useState(title);
   const [uncontrolledLanguage, setUncontrolledLanguage] = useState(
@@ -81,10 +83,56 @@ export default function Modal({
   const navigate = useNavigate();
 
   const overwriteDiagram = () => {
-    setTables(importData.tables);
-    setRelationships(importData.relationships);
-    setAreas(importData.subjectAreas ?? []);
-    setNotes(importData.notes ?? []);
+    if (Array.isArray(importData.views)) {
+      // Multi-view payload: hydrate the active view from views[0] and
+      // populate ViewsContext with every imported view.
+      const importedViews = importData.views.map((v) => ({
+        id: crypto.randomUUID(),
+        name: v.name ?? "Imported",
+        tables: v.tables ?? [],
+        references: v.relationships ?? [],
+        notes: v.notes ?? [],
+        areas: v.subjectAreas ?? [],
+        pan: v.pan ?? { x: 0, y: 0 },
+        zoom: v.zoom ?? 1,
+      }));
+      const firstView = importedViews[0];
+
+      setViews(importedViews);
+      setActiveViewId(firstView.id);
+      setTables(firstView.tables);
+      setRelationships(firstView.references);
+      setNotes(firstView.notes);
+      setAreas(firstView.areas);
+      setTransform({ pan: firstView.pan, zoom: firstView.zoom });
+    } else {
+      // Legacy flat payload: wrap into a single view named "Main".
+      const tables = importData.tables ?? [];
+      const relationships = importData.relationships ?? [];
+      const notes = importData.notes ?? [];
+      const areas = importData.subjectAreas ?? [];
+
+      setTables(tables);
+      setRelationships(relationships);
+      setAreas(areas);
+      setNotes(notes);
+
+      const mainViewId = crypto.randomUUID();
+      setViews([
+        {
+          id: mainViewId,
+          name: "Main",
+          tables,
+          references: relationships,
+          notes,
+          areas,
+          pan: { x: 0, y: 0 },
+          zoom: 1,
+        },
+      ]);
+      setActiveViewId(mainViewId);
+    }
+
     if (importData.title) {
       setTitle(importData.title);
     }

@@ -46,6 +46,7 @@ import {
   pngExportPixelRatio,
 } from "../../data/constants";
 import jsPDF from "jspdf";
+import { saveAs } from "file-saver";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Validator } from "jsonschema";
 import { areaSchema, noteSchema, tableSchema } from "../../data/schemas";
@@ -63,6 +64,7 @@ import {
   useAreas,
   useEnums,
   useFullscreen,
+  useViews,
 } from "../../hooks";
 import { enterFullscreen, exitFullscreen } from "../../utils/fullscreen";
 import { dataURItoBlob } from "../../utils/utils";
@@ -125,6 +127,7 @@ export default function ControlPanel({ title, setTitle, lastSaved }) {
   const { undoStack, redoStack, setUndoStack, setRedoStack } = useUndoRedo();
   const { selectedElement, setSelectedElement } = useSelect();
   const { transform, setTransform } = useTransform();
+  const { views, activeViewId } = useViews();
   const { t, i18n } = useTranslation();
   const { version, gistId, setGistId } = useContext(IdContext);
   const isTemplate = useMatch("/editor/templates/:id");
@@ -397,6 +400,8 @@ export default function ControlPanel({ title, setTitle, lastSaved }) {
                 notNull: false,
                 increment: false,
                 comment: "",
+                descriptionFr: "",
+                descriptionEn: "",
                 id: nanoid(),
               },
             ],
@@ -1117,21 +1122,59 @@ export default function ControlPanel({ title, setTitle, lastSaved }) {
           {
             name: "JSON",
             function: () => {
-              setModal(MODAL.CODE);
-              const result = JSON.stringify(
-                {
-                  tables: tables,
-                  relationships: relationships,
-                  notes: notes,
-                  subjectAreas: areas,
-                  database: database,
-                  ...(databases[database].hasTypes && { types: types }),
-                  ...(databases[database].hasEnums && { enums: enums }),
-                  title: title,
-                },
-                null,
-                2,
+              // Flush live context state into the active view so unsaved edits
+              // in the current tab are included in the export.
+              const activeSnapshot = {
+                tables,
+                references: relationships,
+                notes,
+                areas,
+                pan: transform.pan,
+                zoom: transform.zoom,
+              };
+
+              let exportViews;
+              if (!views?.length || !activeViewId) {
+                exportViews = [{ name: "Main", ...activeSnapshot }];
+              } else {
+                exportViews = views.map((v) =>
+                  v.id === activeViewId ? { ...v, ...activeSnapshot } : v,
+                );
+              }
+
+              // Remap internal field names (references/areas) to the export
+              // schema (relationships/subjectAreas) and drop internal view ids.
+              const serializedViews = exportViews.map((v) => ({
+                name: v.name,
+                tables: v.tables ?? [],
+                relationships: v.references ?? [],
+                notes: v.notes ?? [],
+                subjectAreas: v.areas ?? [],
+                pan: v.pan ?? { x: 0, y: 0 },
+                zoom: v.zoom ?? 1,
+              }));
+
+              const payload = {
+                title: title,
+                database: database,
+                ...(databases[database].hasTypes && { types: types }),
+                ...(databases[database].hasEnums && { enums: enums }),
+                views: serializedViews,
+              };
+
+              const result = JSON.stringify(payload, null, 2);
+              const totalTables = serializedViews.reduce(
+                (sum, v) => sum + v.tables.length,
+                0,
               );
+
+              if (totalTables > 200) {
+                const blob = new Blob([result], { type: "application/json" });
+                saveAs(blob, `${exportData.filename}.json`);
+                return;
+              }
+
+              setModal(MODAL.CODE);
               setExportData((prev) => ({
                 ...prev,
                 data: result,

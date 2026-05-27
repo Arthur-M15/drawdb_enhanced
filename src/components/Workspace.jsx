@@ -105,6 +105,7 @@ function WorkSpaceInner() {
 
     // Snapshot the active view from live context state (ViewsContext.views may
     // lag behind the domain contexts between tab switches and saves).
+    // Types/enums are diagram-global and stored at the top level — not in views.
     const activeSnapshot = {
       tables,
       references: relationships,
@@ -112,8 +113,6 @@ function WorkSpaceInner() {
       areas,
       pan: transform.pan,
       zoom: transform.zoom,
-      ...(databases[database].hasEnums && { enums }),
-      ...(databases[database].hasTypes && { types }),
     };
 
     // Guard for the first-ever save before load() has populated ViewsContext.
@@ -130,6 +129,11 @@ function WorkSpaceInner() {
       );
     }
 
+    const topLevelTypesEnums = {
+      ...(databases[database].hasTypes && { types }),
+      ...(databases[database].hasEnums && { enums }),
+    };
+
     if (isTemplate || (!loadedDiagramId && !isTemplate && !isDiagram)) {
       const diagramId = crypto.randomUUID();
       await db.diagrams
@@ -142,6 +146,7 @@ function WorkSpaceInner() {
           loadedFromGistId: loadedFromGistId,
           activeViewId: savedActiveViewId,
           views: savedViews,
+          ...topLevelTypesEnums,
         })
         .then(() => {
           navigate(`/editor/diagrams/${diagramId}`, { replace: true });
@@ -160,6 +165,7 @@ function WorkSpaceInner() {
           loadedFromGistId: loadedFromGistId,
           activeViewId: savedActiveViewId,
           views: savedViews,
+          ...topLevelTypesEnums,
         })
         .then(() => {
           setSaveState(State.SAVED);
@@ -191,6 +197,7 @@ function WorkSpaceInner() {
 
   const load = useCallback(async () => {
     // Builds a synthetic single-view from a flat legacy/template/gist payload.
+    // Types/enums live at the diagram level — not embedded in views.
     const makeSyntheticView = (payload) => {
       const viewId = crypto.randomUUID();
       return {
@@ -202,32 +209,15 @@ function WorkSpaceInner() {
         areas: payload.areas ?? [],
         pan: payload.pan ?? { x: 0, y: 0 },
         zoom: payload.zoom ?? 1,
-        ...(payload.types !== undefined && { types: payload.types }),
-        ...(payload.enums !== undefined && { enums: payload.enums }),
       };
     };
 
-    // Hydrates domain contexts + ViewsContext from a views[] array.
-    const applyViews = (diagramViews, diagramActiveViewId, dbType) => {
-      const activeView =
-        diagramViews.find((v) => v.id === diagramActiveViewId) ??
-        diagramViews[0];
-
-      setViews(diagramViews);
-      setActiveViewId(activeView.id);
-      setTables(activeView.tables ?? []);
-      setRelationships(activeView.references ?? []);
-      setNotes(activeView.notes ?? []);
-      setAreas(activeView.areas ?? []);
-      setTransform({
-        pan: activeView.pan ?? { x: 0, y: 0 },
-        zoom: activeView.zoom ?? 1,
-      });
-
+    // Hydrates types/enums from a top-level payload (diagram, template, gist).
+    const applyTypesAndEnums = (payload, dbType) => {
       if (databases[dbType].hasTypes) {
-        if (activeView.types) {
+        if (payload.types) {
           setTypes(
-            activeView.types.map((t) =>
+            payload.types.map((t) =>
               t.id
                 ? t
                 : {
@@ -245,11 +235,30 @@ function WorkSpaceInner() {
       }
       if (databases[dbType].hasEnums) {
         setEnums(
-          (activeView.enums ?? []).map((e) =>
+          (payload.enums ?? []).map((e) =>
             !e.id ? { ...e, id: nanoid() } : e,
           ),
         );
       }
+    };
+
+    // Hydrates domain contexts + ViewsContext from a views[] array.
+    // Types/enums are NOT touched here — call applyTypesAndEnums separately.
+    const applyViews = (diagramViews, diagramActiveViewId) => {
+      const activeView =
+        diagramViews.find((v) => v.id === diagramActiveViewId) ??
+        diagramViews[0];
+
+      setViews(diagramViews);
+      setActiveViewId(activeView.id);
+      setTables(activeView.tables ?? []);
+      setRelationships(activeView.references ?? []);
+      setNotes(activeView.notes ?? []);
+      setAreas(activeView.areas ?? []);
+      setTransform({
+        pan: activeView.pan ?? { x: 0, y: 0 },
+        zoom: activeView.zoom ?? 1,
+      });
     };
 
     const loadLatestDiagram = async () => {
@@ -268,16 +277,13 @@ function WorkSpaceInner() {
             let diagramViews = diagram.views;
             let diagramActiveViewId = diagram.activeViewId;
             if (!diagramViews || diagramViews.length === 0) {
-              const v = makeSyntheticView({
-                ...diagram,
-                enums: diagram.enums,
-                types: diagram.types,
-              });
+              const v = makeSyntheticView(diagram);
               diagramViews = [v];
               diagramActiveViewId = v.id;
             }
 
-            applyViews(diagramViews, diagramActiveViewId, dbType);
+            applyViews(diagramViews, diagramActiveViewId);
+            applyTypesAndEnums(diagram, dbType);
             navigate(`/editor/diagrams/${diagram.diagramId}`, {
               replace: true,
             });
@@ -307,16 +313,13 @@ function WorkSpaceInner() {
       let diagramViews = diagram.views;
       let diagramActiveViewId = diagram.activeViewId;
       if (!diagramViews || diagramViews.length === 0) {
-        const v = makeSyntheticView({
-          ...diagram,
-          enums: diagram.enums,
-          types: diagram.types,
-        });
+        const v = makeSyntheticView(diagram);
         diagramViews = [v];
         diagramActiveViewId = v.id;
       }
 
-      applyViews(diagramViews, diagramActiveViewId, dbType);
+      applyViews(diagramViews, diagramActiveViewId);
+      applyTypesAndEnums(diagram, dbType);
     };
 
     const loadTemplate = async (id) => {
@@ -354,6 +357,7 @@ function WorkSpaceInner() {
         }
 
         // Templates use subjectAreas/relationships — build a synthetic view.
+        // Types/enums are diagram-global and applied separately below.
         const viewId = crypto.randomUUID();
         const syntheticView = {
           id: viewId,
@@ -364,8 +368,6 @@ function WorkSpaceInner() {
           areas: template.subjectAreas ?? [],
           pan: { x: 0, y: 0 },
           zoom: 1,
-          ...(databases[dbType].hasTypes && { types: viewTypes }),
-          ...(databases[dbType].hasEnums && { enums: viewEnums }),
         };
 
         setViews([syntheticView]);
@@ -410,6 +412,7 @@ function WorkSpaceInner() {
         }
 
         // Gists use subjectAreas/relationships — build a synthetic view.
+        // Types/enums are diagram-global and applied separately below.
         const viewId = crypto.randomUUID();
         const syntheticView = {
           id: viewId,
@@ -420,8 +423,6 @@ function WorkSpaceInner() {
           areas: parsedDiagram.subjectAreas ?? [],
           pan: parsedDiagram.transform?.pan ?? { x: 0, y: 0 },
           zoom: parsedDiagram.transform?.zoom ?? 1,
-          ...(databases[dbType].hasTypes && { types: viewTypes }),
-          ...(databases[dbType].hasEnums && { enums: viewEnums }),
         };
 
         setUndoStack([]);

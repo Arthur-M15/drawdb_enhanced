@@ -381,6 +381,72 @@ export default function FieldDetails({ data, tid }) {
           setRedoStack([]);
         }}
       />
+      <div className="font-semibold">{t("additional_description")}</div>
+      <TextArea
+        className="my-2"
+        placeholder={t("additional_description")}
+        value={data.descriptionFr ?? ""}
+        readonly={layout.readOnly}
+        autosize
+        rows={2}
+        onChange={(value) =>
+          updateField(tid, data.id, { descriptionFr: value })
+        }
+        onFocus={(e) => setEditField({ descriptionFr: e.target.value })}
+        onBlur={(e) => {
+          if (e.target.value === editField.descriptionFr) return;
+          setUndoStack((prev) => [
+            ...prev,
+            {
+              action: Action.EDIT,
+              element: ObjectType.TABLE,
+              component: "field",
+              tid: tid,
+              fid: data.id,
+              undo: editField,
+              redo: { descriptionFr: e.target.value },
+              message: t("edit_table", {
+                tableName: table.name,
+                extra: "[field]",
+              }),
+            },
+          ]);
+          setRedoStack([]);
+        }}
+      />
+      <div className="font-semibold">{t("english_description")}</div>
+      <TextArea
+        className="my-2"
+        placeholder={t("english_description")}
+        value={data.descriptionEn ?? ""}
+        readonly={layout.readOnly}
+        autosize
+        rows={2}
+        onChange={(value) =>
+          updateField(tid, data.id, { descriptionEn: value })
+        }
+        onFocus={(e) => setEditField({ descriptionEn: e.target.value })}
+        onBlur={(e) => {
+          if (e.target.value === editField.descriptionEn) return;
+          setUndoStack((prev) => [
+            ...prev,
+            {
+              action: Action.EDIT,
+              element: ObjectType.TABLE,
+              component: "field",
+              tid: tid,
+              fid: data.id,
+              undo: editField,
+              redo: { descriptionEn: e.target.value },
+              message: t("edit_table", {
+                tableName: table.name,
+                extra: "[field]",
+              }),
+            },
+          ]);
+          setRedoStack([]);
+        }}
+      />
       <Button
         icon={<IconDeleteStroked />}
         type="danger"
