@@ -25,6 +25,8 @@ export const getModalTitle = (modal) => {
       return i18n.t("language");
     case MODAL.SHARE:
       return i18n.t("share");
+    case MODAL.EXPORT_PDF:
+      return i18n.t("export_pdf_documentation");
     default:
       return "";
   }
@@ -60,6 +62,8 @@ export const getOkText = (modal) => {
       return i18n.t("create");
     case MODAL.SHARE:
       return i18n.t("share");
+    case MODAL.EXPORT_PDF:
+      return i18n.t("export");
     default:
       return i18n.t("confirm");
   }

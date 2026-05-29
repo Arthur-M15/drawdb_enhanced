@@ -1,10 +1,21 @@
-import { Image, Input, Modal as SemiUIModal, Spin } from "@douyinfe/semi-ui";
+import {
+  Image,
+  Input,
+  Modal as SemiUIModal,
+  Spin,
+  Toast,
+} from "@douyinfe/semi-ui";
 import { saveAs } from "file-saver";
 import { Parser } from "node-sql-parser";
 import { Parser as OracleParser } from "oracle-sql-parser";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { DB, MODAL, STATUS } from "../../../data/constants";
+import {
+  generatePdfDocumentation,
+  isCancelError,
+} from "../../../utils/exportAs/pdfDocumentation";
+import ExportPdf from "./ExportPdf";
 import { databases } from "../../../data/databases";
 import {
   useAreas,
@@ -80,7 +91,22 @@ export default function Modal({
   const [selectedTemplateId, setSelectedTemplateId] = useState(-1);
   const [selectedDiagramId, setSelectedDiagramId] = useState(0);
   const [saveAsTitle, setSaveAsTitle] = useState(title);
+  const [pdfSelectedViewIds, setPdfSelectedViewIds] = useState([]);
+  const [pdfGenerating, setPdfGenerating] = useState(false);
+  const [pdfProgress, setPdfProgress] = useState(null);
+  const [pdfError, setPdfError] = useState(null);
+  const pdfCancelRef = useRef({ current: false });
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (modal === MODAL.EXPORT_PDF) {
+      const internal = exportData?.payload?._internalViews ?? [];
+      setPdfSelectedViewIds(internal.map((v) => v.id));
+      setPdfError(null);
+      setPdfProgress(null);
+      pdfCancelRef.current = { current: false };
+    }
+  }, [modal, exportData]);
 
   const overwriteDiagram = () => {
     if (Array.isArray(importData.views)) {
@@ -266,6 +292,40 @@ export default function Modal({
         setSettings((prev) => ({ ...prev, tableWidth: tempTableWidth }));
         setModal(MODAL.NONE);
         return;
+      case MODAL.EXPORT_PDF: {
+        if (pdfGenerating) return;
+        if (!pdfSelectedViewIds.length) {
+          setPdfError(t("select_views_to_export"));
+          return;
+        }
+        setPdfGenerating(true);
+        setPdfError(null);
+        setPdfProgress({ done: 0, total: 0 });
+        pdfCancelRef.current = { current: false };
+        try {
+          await generatePdfDocumentation({
+            payload: exportData.payload,
+            selectedViewIds: pdfSelectedViewIds,
+            filename: exportData.filename,
+            cancelRef: pdfCancelRef.current,
+            onProgress: (done, total) => setPdfProgress({ done, total }),
+          });
+          Toast.success(t("pdf_exported"));
+          setModal(MODAL.NONE);
+        } catch (e) {
+          if (isCancelError(e)) {
+            setModal(MODAL.NONE);
+          } else {
+            const msg = e?.message ?? "PDF export failed";
+            Toast.error(msg);
+            setPdfError(msg);
+          }
+        } finally {
+          setPdfGenerating(false);
+          setPdfProgress(null);
+        }
+        return;
+      }
       default:
         setModal(MODAL.NONE);
         return;
@@ -369,6 +429,24 @@ export default function Modal({
         );
       case MODAL.SHARE:
         return <Share title={title} setModal={setModal} />;
+      case MODAL.EXPORT_PDF: {
+        const internal = exportData?.payload?._internalViews ?? [];
+        const viewsForUi = internal.map((v) => ({
+          id: v.id,
+          name: v.name,
+          tableCount: (v.tables ?? []).length,
+        }));
+        return (
+          <ExportPdf
+            views={viewsForUi}
+            selectedViewIds={pdfSelectedViewIds}
+            setSelectedViewIds={setPdfSelectedViewIds}
+            generating={pdfGenerating}
+            progress={pdfProgress}
+            error={pdfError}
+          />
+        );
+      }
       default:
         return <></>;
     }
@@ -400,6 +478,12 @@ export default function Modal({
         if (modal === MODAL.RENAME) setUncontrolledTitle(title);
         if (modal === MODAL.LANGUAGE) setUncontrolledLanguage(i18n.language);
         if (modal === MODAL.TABLE_WIDTH) setTempTableWidth(settings.tableWidth);
+        if (modal === MODAL.EXPORT_PDF && pdfGenerating) {
+          // Signal cancellation; the running generator will throw at its next
+          // checkpoint, and the OK handler's catch will close the modal.
+          pdfCancelRef.current.current = true;
+          return;
+        }
         setModal(MODAL.NONE);
       }}
       centered
@@ -413,7 +497,9 @@ export default function Modal({
           (modal === MODAL.RENAME && title === "") ||
           ((modal === MODAL.IMG || modal === MODAL.CODE) && !exportData.data) ||
           (modal === MODAL.SAVEAS && saveAsTitle === "") ||
-          (modal === MODAL.IMPORT_SRC && importSource.src === ""),
+          (modal === MODAL.IMPORT_SRC && importSource.src === "") ||
+          (modal === MODAL.EXPORT_PDF &&
+            (pdfGenerating || pdfSelectedViewIds.length === 0)),
         hidden: modal === MODAL.SHARE,
       }}
       hasCancel={modal !== MODAL.SHARE}

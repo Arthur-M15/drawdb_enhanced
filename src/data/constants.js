@@ -88,6 +88,7 @@ export const MODAL = {
   LANGUAGE: 10,
   SHARE: 11,
   CONFIG_CUSTOM_TYPES: 12,
+  EXPORT_PDF: 13,
 };
 
 export const STATUS = {

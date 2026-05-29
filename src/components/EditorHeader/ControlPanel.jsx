@@ -1,4 +1,4 @@
-import { useContext, useState } from "react";
+import { useCallback, useContext, useState } from "react";
 import {
   IconCaretdown,
   IconChevronRight,
@@ -45,7 +45,6 @@ import {
   noteWidth,
   pngExportPixelRatio,
 } from "../../data/constants";
-import jsPDF from "jspdf";
 import { saveAs } from "file-saver";
 import { useHotkeys } from "react-hotkeys-hook";
 import { Validator } from "jsonschema";
@@ -762,6 +761,69 @@ export default function ControlPanel({ title, setTitle, lastSaved }) {
   const saveDiagramAs = () => setModal(MODAL.SAVEAS);
   const fullscreen = useFullscreen();
 
+  // Canonical multi-view export payload, shared by JSON and PDF exporters.
+  // `_internalViews` carries stable view ids for UI selection and is stripped
+  // before JSON serialization.
+  const buildExportPayload = useCallback(() => {
+    const activeSnapshot = {
+      tables,
+      references: relationships,
+      notes,
+      areas,
+      pan: transform.pan,
+      zoom: transform.zoom,
+    };
+
+    let exportViews;
+    if (!views?.length || !activeViewId) {
+      exportViews = [
+        { id: "__main__", name: "Main", ...activeSnapshot },
+      ];
+    } else {
+      exportViews = views.map((v) =>
+        v.id === activeViewId ? { ...v, ...activeSnapshot } : v,
+      );
+    }
+
+    const serializedViews = exportViews.map((v) => ({
+      name: v.name,
+      tables: v.tables ?? [],
+      relationships: v.references ?? [],
+      notes: v.notes ?? [],
+      subjectAreas: v.areas ?? [],
+      pan: v.pan ?? { x: 0, y: 0 },
+      zoom: v.zoom ?? 1,
+    }));
+
+    return {
+      title,
+      database,
+      ...(databases[database].hasTypes && { types }),
+      ...(databases[database].hasEnums && { enums }),
+      views: serializedViews,
+      _internalViews: exportViews.map((v) => ({
+        id: v.id,
+        name: v.name,
+        tables: v.tables ?? [],
+        relationships: v.references ?? [],
+        notes: v.notes ?? [],
+        subjectAreas: v.areas ?? [],
+      })),
+    };
+  }, [
+    tables,
+    relationships,
+    notes,
+    areas,
+    transform,
+    views,
+    activeViewId,
+    title,
+    database,
+    types,
+    enums,
+  ]);
+
   const menu = {
     file: {
       new: {
@@ -1122,48 +1184,11 @@ export default function ControlPanel({ title, setTitle, lastSaved }) {
           {
             name: "JSON",
             function: () => {
-              // Flush live context state into the active view so unsaved edits
-              // in the current tab are included in the export.
-              const activeSnapshot = {
-                tables,
-                references: relationships,
-                notes,
-                areas,
-                pan: transform.pan,
-                zoom: transform.zoom,
-              };
-
-              let exportViews;
-              if (!views?.length || !activeViewId) {
-                exportViews = [{ name: "Main", ...activeSnapshot }];
-              } else {
-                exportViews = views.map((v) =>
-                  v.id === activeViewId ? { ...v, ...activeSnapshot } : v,
-                );
-              }
-
-              // Remap internal field names (references/areas) to the export
-              // schema (relationships/subjectAreas) and drop internal view ids.
-              const serializedViews = exportViews.map((v) => ({
-                name: v.name,
-                tables: v.tables ?? [],
-                relationships: v.references ?? [],
-                notes: v.notes ?? [],
-                subjectAreas: v.areas ?? [],
-                pan: v.pan ?? { x: 0, y: 0 },
-                zoom: v.zoom ?? 1,
-              }));
-
-              const payload = {
-                title: title,
-                database: database,
-                ...(databases[database].hasTypes && { types: types }),
-                ...(databases[database].hasEnums && { enums: enums }),
-                views: serializedViews,
-              };
-
-              const result = JSON.stringify(payload, null, 2);
-              const totalTables = serializedViews.reduce(
+              const fullPayload = buildExportPayload();
+              const { _internalViews, ...serializable } = fullPayload;
+              void _internalViews;
+              const result = JSON.stringify(serializable, null, 2);
+              const totalTables = serializable.views.reduce(
                 (sum, v) => sum + v.tables.length,
                 0,
               );
@@ -1202,22 +1227,13 @@ export default function ControlPanel({ title, setTitle, lastSaved }) {
           {
             name: "PDF",
             function: () => {
-              const canvas = document.getElementById("canvas");
-              toJpeg(canvas).then(function (dataUrl) {
-                const doc = new jsPDF("l", "px", [
-                  canvas.offsetWidth,
-                  canvas.offsetHeight,
-                ]);
-                doc.addImage(
-                  dataUrl,
-                  "jpeg",
-                  0,
-                  0,
-                  canvas.offsetWidth,
-                  canvas.offsetHeight,
-                );
-                doc.save(`${exportData.filename}.pdf`);
-              });
+              const payload = buildExportPayload();
+              setExportData((prev) => ({
+                ...prev,
+                payload,
+                extension: "pdf",
+              }));
+              setModal(MODAL.EXPORT_PDF);
             },
           },
           {

@@ -539,7 +539,15 @@ function WorkSpaceInner() {
 
     if (saveState !== State.SAVING) return;
 
-    save();
+    // Debounce: `save` is a useCallback whose deps include tables/relationships/
+    // notes/areas/types/etc., so it gets a new identity on every keystroke,
+    // re-firing this effect. Without the timeout we'd re-serialize the full
+    // model (potentially MBs) on every input. Coalesce bursts into one write.
+    const timeoutId = setTimeout(() => {
+      save();
+    }, 500);
+
+    return () => clearTimeout(timeoutId);
   }, [saveState, layout, save]);
 
   useEffect(() => {

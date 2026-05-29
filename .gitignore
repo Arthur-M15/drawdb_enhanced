@@ -24,3 +24,14 @@ dist-ssr
 *.sw?
 .env
 CLAUDE.md
+
+# Throwaway perf/scale scripts and their generated output
+scripts/
+*.bigdiagram.json
+
+# Private data
+generator
+generator/*
+pdm.json
+trash
+trash/*
