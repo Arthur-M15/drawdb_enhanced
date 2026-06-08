@@ -1,43 +1,47 @@
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import {
   Tab,
   ObjectType,
-  tableHeaderHeight,
-  tableColorStripHeight,
+  LARGE_SCHEMA_TABLE_THRESHOLD,
+  COMPACT_FIELDS_THRESHOLD,
+  VIEW_COMPACT_COMPLEXITY_THRESHOLD,
 } from "../../data/constants";
 import {
   IconEdit,
   IconMore,
-  IconMinus,
   IconDeleteStroked,
-  IconKeyStroked,
   IconLock,
   IconUnlock,
 } from "@douyinfe/semi-icons";
 import { Popover, Tag, Button, SideSheet } from "@douyinfe/semi-ui";
+import { useHover } from "usehooks-ts";
 import { useLayout, useSettings, useDiagram, useSelect } from "../../hooks";
 import TableInfo from "../EditorSidePanel/TablesTab/TableInfo";
 import { useTranslation } from "react-i18next";
-import { resolveType } from "../../utils/customTypes";
-import { isRtl } from "../../i18n/utils/rtl";
-import i18n from "../../i18n/i18n";
-import {
-  getCommentHeight,
-  getFieldOffsetY,
-  getTableHeight,
-} from "../../utils/utils";
+import { getCompactedTableHeight, getTableHeight } from "../../utils/utils";
+import FieldRow from "./FieldRow";
 
-export default function Table({
+function Table({
   tableData,
-  onPointerDown,
+  registerPointerDown,
   setHoveredTable,
   handleGripField,
   setLinkingLine,
 }) {
+  const onPointerDown = useCallback(
+    () => registerPointerDown(tableData, ObjectType.TABLE),
+    [tableData, registerPointerDown],
+  );
   const [hoveredField, setHoveredField] = useState(null);
-  const { database } = useDiagram();
+  const {
+    database,
+    tablesCount,
+    viewComplexity,
+    deleteTable,
+    deleteField,
+    updateTable,
+  } = useDiagram();
   const { layout } = useLayout();
-  const { deleteTable, deleteField, updateTable } = useDiagram();
   const { settings } = useSettings();
   const { t } = useTranslation();
   const {
@@ -52,11 +56,21 @@ export default function Table({
     [settings.mode],
   );
 
-  const height = getTableHeight(
-    tableData,
-    settings.tableWidth,
-    settings.showComments,
-  );
+  // L3 compaction: tables with many fields hide their rows by default to keep
+  // the canvas cheap to render. Hovering or selecting the table re-expands it.
+  // Relationship endpoints use the table's compacted flag (independent of
+  // hover/selection) so lines don't jitter as the user mouses over.
+  //
+  // Two independent triggers:
+  //   - per-table: this table is itself too big (> COMPACT_FIELDS_THRESHOLD)
+  //   - per-view:  the whole view is too complex (sum of tables + total fields
+  //                > VIEW_COMPACT_COMPLEXITY_THRESHOLD). Catches schemas made
+  //                of many small tables that still saturate the canvas.
+  const hoverRef = useRef(null);
+  const isMouseOver = useHover(hoverRef);
+  const viewWideCompact = viewComplexity > VIEW_COMPACT_COMPLEXITY_THRESHOLD;
+  const autoCompacted =
+    viewWideCompact || tableData.fields.length > COMPACT_FIELDS_THRESHOLD;
 
   const isSelected = useMemo(() => {
     return (
@@ -67,6 +81,78 @@ export default function Table({
       )
     );
   }, [selectedElement, tableData, bulkSelectedElements]);
+
+  const showFields = !autoCompacted || isMouseOver || isSelected;
+
+  // Re-measure the table height only when one of its layout inputs actually
+  // changes (fields/comment/width/showComments) — not on every render caused
+  // by moving the table (x/y change). When the table is compacted (no fields
+  // visible), use the cheaper header-only height.
+  const fullHeight = useMemo(
+    () =>
+      getTableHeight(tableData, settings.tableWidth, settings.showComments),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      tableData.fields,
+      tableData.comment,
+      settings.tableWidth,
+      settings.showComments,
+    ],
+  );
+  const compactedHeight = useMemo(
+    () =>
+      getCompactedTableHeight(
+        tableData.comment,
+        settings.tableWidth,
+        settings.showComments,
+      ),
+    [tableData.comment, settings.tableWidth, settings.showComments],
+  );
+  const height = showFields ? fullHeight : compactedHeight;
+
+  // L2.E — above the threshold, drop the per-field Popover wrapper. Each row
+  // becomes a plain div; the side panel still gives access to field details.
+  const effectiveShowFieldSummary =
+    settings.showFieldSummary && tablesCount <= LARGE_SCHEMA_TABLE_THRESHOLD;
+
+  // Handlers handed to memoized <FieldRow>. Wrapped in useCallback so each row
+  // sees the same identity across re-renders triggered by hover, allowing
+  // FieldRow.memo to skip the rows whose isHovered didn't flip.
+  const handleFieldEnter = useCallback(
+    (index, fieldId) => {
+      setHoveredField(index);
+      setHoveredTable({ tableId: tableData.id, fieldId });
+    },
+    [tableData.id, setHoveredTable],
+  );
+
+  const handleFieldLeave = useCallback(() => {
+    setHoveredField(null);
+    setHoveredTable({ tableId: null, fieldId: null });
+  }, [setHoveredTable]);
+
+  const handleFieldDelete = useCallback(
+    (fieldData, tid) => {
+      deleteField(fieldData, tid);
+    },
+    [deleteField],
+  );
+
+  const handleFieldGrip = useCallback(
+    (fieldId, tid, startX, startY) => {
+      handleGripField();
+      setLinkingLine((prev) => ({
+        ...prev,
+        startFieldId: fieldId,
+        startTableId: tid,
+        startX,
+        startY,
+        endX: startX,
+        endY: startY,
+      }));
+    },
+    [handleGripField, setLinkingLine],
+  );
 
   const lockUnlockTable = (e) => {
     const locking = !tableData.locked;
@@ -138,8 +224,17 @@ export default function Table({
 
   if (tableData.hidden) return null;
 
+  const sideSheetVisible =
+    selectedElement.element === ObjectType.TABLE &&
+    selectedElement.id === tableData.id &&
+    selectedElement.open &&
+    !layout.sidebar;
+
   return (
     <>
+      {/* The hover ref is attached to a <g> so it captures mouseenter/leave
+          across the whole table; useHover drives the auto-compaction expand. */}
+      <g ref={hoverRef}>
       <foreignObject
         key={tableData.id}
         x={tableData.x}
@@ -148,6 +243,10 @@ export default function Table({
         height={height}
         className="group drop-shadow-lg rounded-md cursor-move"
         onPointerDown={onPointerDown}
+        // L2.G — contain layout/style/paint inside the foreignObject so
+        // changes inside a table (hover, field edit) don't trigger reflow
+        // calculations on sibling tables/relationships.
+        style={{ contain: "layout style paint" }}
       >
         <div
           onDoubleClick={openEditor}
@@ -282,232 +381,66 @@ export default function Table({
             )}
           </div>
 
-          {tableData.fields.map((e, i) => {
-            const resolved = resolveType(database, e.type);
-            return settings.showFieldSummary ? (
-              <Popover
-                key={i}
-                content={
-                  <div className="popover-theme">
-                    <div
-                      className="flex justify-between items-center pb-2"
-                      style={{ direction: "ltr" }}
-                    >
-                      <p className="me-4 font-bold">{e.name}</p>
-                      <p
-                        className={
-                          "ms-4 font-mono " +
-                          (resolved.isCustom ? "" : resolved.color)
-                        }
-                        style={
-                          resolved.isCustom ? { color: resolved.color } : {}
-                        }
-                      >
-                        {e.type +
-                          ((resolved.isSized || resolved.hasPrecision) &&
-                          e.size &&
-                          e.size !== ""
-                            ? "(" + e.size + ")"
-                            : "")}
-                      </p>
-                    </div>
-                    <hr />
-                    {e.primary && (
-                      <Tag color="blue" className="me-2 my-2">
-                        {t("primary")}
-                      </Tag>
-                    )}
-                    {e.unique && (
-                      <Tag color="amber" className="me-2 my-2">
-                        {t("unique")}
-                      </Tag>
-                    )}
-                    {e.notNull && (
-                      <Tag color="purple" className="me-2 my-2">
-                        {t("not_null")}
-                      </Tag>
-                    )}
-                    {e.increment && (
-                      <Tag color="green" className="me-2 my-2">
-                        {t("autoincrement")}
-                      </Tag>
-                    )}
-                    <p>
-                      <strong>{t("default_value")}: </strong>
-                      {e.default === "" ? t("not_set") : e.default}
-                    </p>
-                    <p className="max-w-80">
-                      <strong>{t("comment")}: </strong>
-                      {e.comment === "" ? t("not_set") : e.comment}
-                    </p>
-                  </div>
-                }
-                position="right"
-                showArrow
-                style={
-                  isRtl(i18n.language)
-                    ? { direction: "rtl" }
-                    : { direction: "ltr" }
-                }
-              >
-                {field(e, i)}
-              </Popover>
-            ) : (
-              field(e, i)
-            );
-          })}
+          {showFields &&
+            tableData.fields.map((fieldData, i) => (
+              <FieldRow
+                key={fieldData.id ?? i}
+                fieldData={fieldData}
+                index={i}
+                isHovered={hoveredField === i}
+                isLast={i === tableData.fields.length - 1}
+                showFieldSummary={effectiveShowFieldSummary}
+                showDataTypes={settings.showDataTypes}
+                showComments={settings.showComments}
+                readOnly={layout.readOnly}
+                database={database}
+                tableFields={tableData.fields}
+                tableId={tableData.id}
+                tableX={tableData.x}
+                tableY={tableData.y}
+                tableComment={tableData.comment}
+                tableWidth={settings.tableWidth}
+                onEnter={handleFieldEnter}
+                onLeave={handleFieldLeave}
+                onDelete={handleFieldDelete}
+                onGripPointerDown={handleFieldGrip}
+              />
+            ))}
         </div>
       </foreignObject>
-      <SideSheet
-        title={t("edit")}
-        size="small"
-        visible={
-          selectedElement.element === ObjectType.TABLE &&
-          selectedElement.id === tableData.id &&
-          selectedElement.open &&
-          !layout.sidebar
-        }
-        onCancel={() =>
-          setSelectedElement((prev) => ({
-            ...prev,
-            open: !prev.open,
-          }))
-        }
-        style={{ paddingBottom: "16px" }}
-      >
-        <div className="sidesheet-theme">
-          <TableInfo data={tableData} />
-        </div>
-      </SideSheet>
+      </g>
+      {sideSheetVisible && (
+        // L2.F — mount the SideSheet (and the expensive TableInfo subtree)
+        // only when this specific table is the one being edited via the
+        // popup flow. Without this, every Table on the canvas keeps a
+        // dormant SideSheet + TableInfo in the React tree.
+        <SideSheet
+          title={t("edit")}
+          size="small"
+          visible
+          onCancel={() =>
+            setSelectedElement((prev) => ({
+              ...prev,
+              open: !prev.open,
+            }))
+          }
+          style={{ paddingBottom: "16px" }}
+        >
+          <div className="sidesheet-theme">
+            <TableInfo data={tableData} />
+          </div>
+        </SideSheet>
+      )}
     </>
   );
-
-  function field(fieldData, index) {
-    const fieldResolved = resolveType(database, fieldData.type);
-    const showFieldComment = fieldData.comment && settings.showComments;
-    return (
-      <div
-        className={`${
-          index === tableData.fields.length - 1
-            ? ""
-            : "border-b border-gray-400"
-        } group w-full overflow-hidden`}
-        onPointerEnter={(e) => {
-          if (!e.isPrimary) return;
-
-          setHoveredField(index);
-          setHoveredTable({
-            tableId: tableData.id,
-            fieldId: fieldData.id,
-          });
-        }}
-        onPointerLeave={(e) => {
-          if (!e.isPrimary) return;
-
-          setHoveredField(null);
-          setHoveredTable({
-            tableId: null,
-            fieldId: null,
-          });
-        }}
-        onPointerDown={(e) => {
-          // Required for onPointerLeave to trigger when a touch pointer leaves
-          // https://stackoverflow.com/a/70976017/1137077
-          e.target.releasePointerCapture(e.pointerId);
-        }}
-      >
-        <div className="h-[36px] px-2 py-1 flex justify-between items-center gap-1">
-          <div
-            className={`${
-              hoveredField === index ? "text-zinc-400" : ""
-            } flex items-center gap-2 overflow-hidden`}
-          >
-            <button
-              className="shrink-0 w-[10px] h-[10px] bg-[#2f68adcc] rounded-full"
-              onPointerDown={(e) => {
-                if (!e.isPrimary) return;
-
-                handleGripField();
-                const fieldY =
-                  tableData.y +
-                  getFieldOffsetY(
-                    tableData.fields,
-                    index,
-                    settings.tableWidth,
-                    settings.showComments,
-                  ) +
-                  tableHeaderHeight +
-                  tableColorStripHeight +
-                  getCommentHeight(
-                    tableData.comment,
-                    settings.tableWidth,
-                    settings.showComments,
-                  ) +
-                  14;
-                setLinkingLine((prev) => ({
-                  ...prev,
-                  startFieldId: fieldData.id,
-                  startTableId: tableData.id,
-                  startX: tableData.x + 15,
-                  startY: fieldY,
-                  endX: tableData.x + 15,
-                  endY: fieldY,
-                }));
-              }}
-            />
-            <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-              {fieldData.name}
-            </span>
-          </div>
-          <div className="text-zinc-400">
-            {hoveredField === index ? (
-              <Button
-                theme="solid"
-                size="small"
-                style={{
-                  backgroundColor: "#d42020b3",
-                }}
-                icon={<IconMinus />}
-                disabled={layout.readOnly}
-                onClick={() => {
-                  if (layout.readOnly) return;
-                  deleteField(fieldData, tableData.id);
-                }}
-              />
-            ) : settings.showDataTypes ? (
-              <div className="flex gap-1 items-center">
-                {fieldData.primary && <IconKeyStroked />}
-                {!fieldData.notNull && <span className="font-mono">?</span>}
-                <span
-                  className={
-                    "font-mono " +
-                    (fieldResolved.isCustom ? "" : fieldResolved.color)
-                  }
-                  style={
-                    fieldResolved.isCustom ? { color: fieldResolved.color } : {}
-                  }
-                >
-                  {fieldData.type +
-                    ((fieldResolved.isSized || fieldResolved.hasPrecision) &&
-                    fieldData.size &&
-                    fieldData.size !== ""
-                      ? `(${fieldData.size})`
-                      : "")}
-                </span>
-              </div>
-            ) : null}
-          </div>
-        </div>
-        {showFieldComment && (
-          <div className="ms-3 px-3 pb-3">
-            <div
-              className={`text-xs line-clamp-2 ${settings.mode === "light" ? "text-zinc-600" : "text-zinc-200"}`}
-            >
-              {fieldData.comment}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
 }
+
+export default memo(Table, (prev, next) => {
+  return (
+    prev.tableData === next.tableData &&
+    prev.registerPointerDown === next.registerPointerDown &&
+    prev.setHoveredTable === next.setHoveredTable &&
+    prev.handleGripField === next.handleGripField &&
+    prev.setLinkingLine === next.setLinkingLine
+  );
+});

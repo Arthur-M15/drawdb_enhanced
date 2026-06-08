@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Button, Popover, Input } from "@douyinfe/semi-ui";
 import ColorPicker from "../EditorSidePanel/ColorPicker";
 import {
@@ -19,13 +19,12 @@ import {
 import { useTranslation } from "react-i18next";
 import { useHover } from "usehooks-ts";
 
-export default function Area({
-  data,
-  onPointerDown,
-  setResize,
-  setInitDimensions,
-}) {
+function Area({ data, registerPointerDown, setResize, setInitDimensions }) {
   const ref = useRef(null);
+  const onPointerDown = useCallback(
+    () => registerPointerDown(data, ObjectType.AREA),
+    [data, registerPointerDown],
+  );
   const isHovered = useHover(ref);
   const { layout } = useLayout();
   const { settings } = useSettings();
@@ -153,6 +152,7 @@ export default function Area({
         width={data.width > 0 ? data.width : 0}
         height={data.height > 0 ? data.height : 0}
         onPointerDown={onPointerDown}
+        style={{ contain: "layout style paint" }}
       >
         <div
           className={`w-full h-full p-2 rounded cursor-move border-2 ${
@@ -252,6 +252,15 @@ export default function Area({
     </g>
   );
 }
+
+export default memo(Area, (prev, next) => {
+  return (
+    prev.data === next.data &&
+    prev.registerPointerDown === next.registerPointerDown &&
+    prev.setResize === next.setResize &&
+    prev.setInitDimensions === next.setInitDimensions
+  );
+});
 
 function EditPopoverContent({ data }) {
   const [editField, setEditField] = useState({});

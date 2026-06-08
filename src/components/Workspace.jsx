@@ -1,4 +1,10 @@
-import { useState, useEffect, useCallback, createContext } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  createContext,
+} from "react";
 import ControlPanel from "./EditorHeader/ControlPanel";
 import Canvas from "./EditorCanvas/Canvas";
 import { CanvasContextProvider } from "../context/CanvasContext";
@@ -97,7 +103,14 @@ function WorkSpaceInner() {
     if (w > SIDEPANEL_MIN_WIDTH) setWidth(w);
   };
 
-  const save = useCallback(async () => {
+  // The save body reads ~20 pieces of context state, so its identity used to
+  // change on every drag move. That re-fired the autosave debounce effect
+  // (clear+reschedule the setTimeout) on every render. We stabilize save by
+  // keeping the actual implementation in a ref that's refreshed during render,
+  // and exposing an empty-dep useCallback that defers to ref.current. The
+  // debounce effect now only re-runs on real state changes (saveState/layout).
+  const saveImplRef = useRef(null);
+  saveImplRef.current = async () => {
     if (searchParams.has("shareId")) {
       searchParams.delete("shareId");
       setSearchParams(searchParams, { replace: true });
@@ -172,28 +185,8 @@ function WorkSpaceInner() {
           setLastSaved(new Date().toLocaleString());
         });
     }
-  }, [
-    searchParams,
-    setSearchParams,
-    tables,
-    relationships,
-    notes,
-    areas,
-    types,
-    title,
-    transform,
-    setSaveState,
-    database,
-    enums,
-    gistId,
-    loadedFromGistId,
-    isDiagram,
-    isTemplate,
-    loadedDiagramId,
-    navigate,
-    views,
-    activeViewId,
-  ]);
+  };
+  const save = useCallback(() => saveImplRef.current?.(), []);
 
   const load = useCallback(async () => {
     // Builds a synthetic single-view from a flat legacy/template/gist payload.

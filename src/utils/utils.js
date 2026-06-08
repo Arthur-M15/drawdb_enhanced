@@ -193,3 +193,18 @@ export function getTableHeight(table, width, showComments = true) {
     getCommentHeight(table.comment, width, showComments)
   );
 }
+
+// Height of a table when its fields are hidden (auto-compaction). Header +
+// color strip + (optional) comment. Used for both rendering and rect-select
+// hit-testing so the visible footprint matches the selection footprint.
+export function getCompactedTableHeight(
+  tableComment,
+  width,
+  showComments = true,
+) {
+  return (
+    tableHeaderHeight +
+    tableColorStripHeight +
+    getCommentHeight(tableComment, width, showComments)
+  );
+}

@@ -1,4 +1,4 @@
-import { createContext, useState } from "react";
+import { createContext, useMemo, useState } from "react";
 import { ObjectType, Tab } from "../data/constants";
 
 export const SelectContext = createContext(null);
@@ -15,16 +15,17 @@ export default function SelectContextProvider({ children }) {
   });
   const [bulkSelectedElements, setBulkSelectedElements] = useState([]);
 
+  const value = useMemo(
+    () => ({
+      selectedElement,
+      setSelectedElement,
+      bulkSelectedElements,
+      setBulkSelectedElements,
+    }),
+    [selectedElement, bulkSelectedElements],
+  );
+
   return (
-    <SelectContext.Provider
-      value={{
-        selectedElement,
-        setSelectedElement,
-        bulkSelectedElements,
-        setBulkSelectedElements,
-      }}
-    >
-      {children}
-    </SelectContext.Provider>
+    <SelectContext.Provider value={value}>{children}</SelectContext.Provider>
   );
 }

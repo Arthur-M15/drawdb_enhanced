@@ -21,29 +21,38 @@ export function calcPath(r, tableWidth = 200, zoom = 1, showComments = true) {
 
   const width = tableWidth * zoom;
   let x1 = r.startTable.x;
-  let y1 =
-    r.startTable.y +
-    getFieldOffsetY(
-      r.startTable.fields ?? [],
-      r.startFieldIndex,
-      tableWidth,
-      showComments,
-    ) +
-    tableHeaderHeight +
-    getCommentHeight(r.startTable.comment, tableWidth, showComments) +
-    tableFieldHeight / 2;
+  let y1 = r.startTable.compacted
+    ? // Compacted: connect to the vertical middle of the header. The line
+      // does not move when the user hover-expands the table, so the visual
+      // is stable.
+      r.startTable.y +
+      getCommentHeight(r.startTable.comment, tableWidth, showComments) +
+      tableHeaderHeight / 2
+    : r.startTable.y +
+      getFieldOffsetY(
+        r.startTable.fields ?? [],
+        r.startFieldIndex,
+        tableWidth,
+        showComments,
+      ) +
+      tableHeaderHeight +
+      getCommentHeight(r.startTable.comment, tableWidth, showComments) +
+      tableFieldHeight / 2;
   let x2 = r.endTable.x;
-  let y2 =
-    r.endTable.y +
-    getFieldOffsetY(
-      r.endTable.fields ?? [],
-      r.endFieldIndex,
-      tableWidth,
-      showComments,
-    ) +
-    getCommentHeight(r.endTable.comment, tableWidth, showComments) +
-    tableHeaderHeight +
-    tableFieldHeight / 2;
+  let y2 = r.endTable.compacted
+    ? r.endTable.y +
+      getCommentHeight(r.endTable.comment, tableWidth, showComments) +
+      tableHeaderHeight / 2
+    : r.endTable.y +
+      getFieldOffsetY(
+        r.endTable.fields ?? [],
+        r.endFieldIndex,
+        tableWidth,
+        showComments,
+      ) +
+      getCommentHeight(r.endTable.comment, tableWidth, showComments) +
+      tableHeaderHeight +
+      tableFieldHeight / 2;
 
   let radius = 10 * zoom;
   const midX = (x2 + x1 + width) / 2;

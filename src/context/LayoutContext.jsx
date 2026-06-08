@@ -1,4 +1,4 @@
-import { createContext, useState } from "react";
+import { createContext, useMemo, useState } from "react";
 
 export const LayoutContext = createContext(null);
 
@@ -12,9 +12,9 @@ export default function LayoutContextProvider({ children }) {
     readOnly: false,
   });
 
+  const value = useMemo(() => ({ layout, setLayout }), [layout]);
+
   return (
-    <LayoutContext.Provider value={{ layout, setLayout }}>
-      {children}
-    </LayoutContext.Provider>
+    <LayoutContext.Provider value={value}>{children}</LayoutContext.Provider>
   );
 }

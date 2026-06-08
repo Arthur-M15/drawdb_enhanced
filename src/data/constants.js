@@ -25,6 +25,24 @@ export const tableColorStripHeight = 7;
 export const pngExportPixelRatio = 4;
 export const minAreaSize = 120;
 
+// Above this many tables we automatically drop expensive per-field UX:
+//  - the field-summary <Popover> wrapper (one per field) is bypassed
+// Other settings (showComments, showFieldSummary, …) remain user-controlled.
+export const LARGE_SCHEMA_TABLE_THRESHOLD = 50;
+
+// Above this many fields, a table is auto-compacted on the canvas: only its
+// header is shown by default. Hovering or selecting the table re-expands it.
+// Relationship endpoints connect to the header center while the table is
+// compacted (they don't shift on hover) — the relation's name stays the way
+// to identify which field it concerns.
+export const COMPACT_FIELDS_THRESHOLD = 30;
+
+// Total complexity (tables + total fields across all tables) above which
+// EVERY table in the view auto-compacts, not just the largest ones. This
+// catches schemas made of many small tables, which still saturate the canvas
+// even though no single table exceeds COMPACT_FIELDS_THRESHOLD.
+export const VIEW_COMPACT_COMPLEXITY_THRESHOLD = 40;
+
 export const Cardinality = {
   ONE_TO_ONE: "one_to_one",
   ONE_TO_MANY: "one_to_many",

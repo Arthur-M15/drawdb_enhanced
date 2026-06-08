@@ -1,4 +1,4 @@
-import { createContext, useState } from "react";
+import { createContext, useMemo, useState } from "react";
 import { Action, ObjectType } from "../data/constants";
 import { useUndoRedo } from "../hooks";
 import { Toast } from "@douyinfe/semi-ui";
@@ -89,18 +89,20 @@ export default function TypesContextProvider({ children }) {
     );
   };
 
+  const value = useMemo(
+    () => ({
+      types,
+      setTypes,
+      addType,
+      updateType,
+      deleteType,
+      typesCount: types.length,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [types],
+  );
+
   return (
-    <TypesContext.Provider
-      value={{
-        types,
-        setTypes,
-        addType,
-        updateType,
-        deleteType,
-        typesCount: types.length,
-      }}
-    >
-      {children}
-    </TypesContext.Provider>
+    <TypesContext.Provider value={value}>{children}</TypesContext.Provider>
   );
 }

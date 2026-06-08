@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   Action,
   Cardinality,
@@ -28,9 +28,18 @@ import {
 } from "../../hooks";
 import { useTranslation } from "react-i18next";
 import { useEventListener } from "usehooks-ts";
-import { areFieldsCompatible, getTableHeight } from "../../utils/utils";
+import {
+  areFieldsCompatible,
+  getCompactedTableHeight,
+  getTableHeight,
+} from "../../utils/utils";
 import { getRectFromEndpoints, isInsideRect } from "../../utils/rect";
-import { State, noteWidth } from "../../data/constants";
+import {
+  COMPACT_FIELDS_THRESHOLD,
+  State,
+  VIEW_COMPACT_COMPLEXITY_THRESHOLD,
+  noteWidth,
+} from "../../data/constants";
 import { nanoid } from "nanoid";
 
 export default function Canvas() {
@@ -43,8 +52,14 @@ export default function Canvas() {
     pointer,
   } = canvasContextValue;
 
-  const { tables, updateTable, relationships, addRelationship, database } =
-    useDiagram();
+  const {
+    tables,
+    updateTable,
+    relationships,
+    addRelationship,
+    database,
+    viewComplexity,
+  } = useDiagram();
   const { setSaveState } = useSaveState();
   const { areas, updateArea } = useAreas();
   const { notes, updateNote } = useNotes();
@@ -100,9 +115,33 @@ export default function Canvas() {
     ctrlKey: false,
     metaKey: false,
   });
-  // this is used to store the element that is clicked on
-  // at the moment, and shouldn't be a part of the state
-  let elementPointerDown = null;
+  // The element currently being pointer-down'd. Stored in a ref (not state and
+  // not a plain `let`) so a stable identity survives across renders — required
+  // for React.memo on Table/Area/Note to actually skip renders.
+  const elementPointerDownRef = useRef(null);
+
+  // Same boolean Table.jsx uses to force compaction across the whole view.
+  // Computed here so it can be passed to memoized <Relationship> children
+  // (whose endpoints must use compacted line geometry when this is true).
+  const viewWideCompact = viewComplexity > VIEW_COMPACT_COMPLEXITY_THRESHOLD;
+
+  // Lookup so memoized <Relationship> children get stable startTable/endTable
+  // references. Rebuilt only when `tables` array identity changes; per-table
+  // identity is preserved by updateTable's .map((t) => t.id === id ? {...} : t),
+  // so dragging table X only invalidates X's entry — relationships not touching
+  // X get the same startTable/endTable references and skip rendering.
+  const tablesById = useMemo(() => {
+    const map = new Map();
+    for (const t of tables) map.set(t.id, t);
+    return map;
+  }, [tables]);
+
+  // Stable callback handed to memoized children. The child binds (element,type)
+  // at call time, so the child can build a useCallback handler tied to its own
+  // `data` identity instead of receiving a fresh inline arrow every parent render.
+  const registerElementPointerDown = useCallback((element, type) => {
+    elementPointerDownRef.current = { element, type };
+  }, []);
 
   const isSameElement = (el1, el2) => {
     return el1.id === el2.id && el1.type === el2.type;
@@ -131,15 +170,29 @@ export default function Canvas() {
         currentCoords: { x: table.x, y: table.y },
         initialCoords: { x: table.x, y: table.y },
       };
+      // Rect-select hit-testing uses the *visible* table height. Auto-
+      // compacted tables (this table itself > COMPACT_FIELDS_THRESHOLD OR the
+      // view is too complex overall) render only their header, so we use the
+      // compacted height; otherwise the rect would extend over tables the
+      // user can't see and pick them up unexpectedly.
+      const isAutoCompacted =
+        viewWideCompact ||
+        table.fields.length > COMPACT_FIELDS_THRESHOLD;
       const tableRect = {
         x: table.x,
         y: table.y,
         width: settings.tableWidth,
-        height: getTableHeight(
-          table,
-          settings.tableWidth,
-          settings.showComments,
-        ),
+        height: isAutoCompacted
+          ? getCompactedTableHeight(
+              table.comment,
+              settings.tableWidth,
+              settings.showComments,
+            )
+          : getTableHeight(
+              table,
+              settings.tableWidth,
+              settings.showComments,
+            ),
       };
       if (shouldAddElement(tableRect, element)) {
         elements.push(element);
@@ -433,13 +486,16 @@ export default function Canvas() {
         y1: pointer.spaces.diagram.y,
         x2: pointer.spaces.diagram.x,
         y2: pointer.spaces.diagram.y,
-        show: elementPointerDown === null || !elementPointerDown.element.locked,
+        show:
+          elementPointerDownRef.current === null ||
+          !elementPointerDownRef.current.element.locked,
         ctrlKey: e.ctrlKey,
         metaKey: e.metaKey,
       });
-      if (elementPointerDown !== null) {
-        handlePointerDownOnElement(e, elementPointerDown);
+      if (elementPointerDownRef.current !== null) {
+        handlePointerDownOnElement(e, elementPointerDownRef.current);
       }
+      elementPointerDownRef.current = null;
       pointer.setStyle("crosshair");
     } else if (isMouseMiddleButton) {
       setPanning({
@@ -567,11 +623,15 @@ export default function Canvas() {
     });
   };
 
-  const handleGripField = () => {
+  // Stable so memoized <Table> children don't re-render on every Canvas render.
+  const handleGripField = useCallback(() => {
     setPanning((old) => ({ ...old, isPanning: false }));
     setDragging(notDragging);
     setLinking(true);
-  };
+    // notDragging is a render-local literal but always shallow-equal; setters
+    // are stable. No real deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const getCardinality = (startField, endField) => {
     const startIsUnique = startField.unique || startField.primary;
@@ -736,16 +796,17 @@ export default function Canvas() {
               data={a}
               setResize={setAreaResize}
               setInitDimensions={setAreaInitDimensions}
-              onPointerDown={() => {
-                elementPointerDown = {
-                  element: a,
-                  type: ObjectType.AREA,
-                };
-              }}
+              registerPointerDown={registerElementPointerDown}
             />
           ))}
           {relationships.map((e) => (
-            <Relationship key={e.id} data={e} />
+            <Relationship
+              key={e.id}
+              data={e}
+              startTable={tablesById.get(e.startTableId)}
+              endTable={tablesById.get(e.endTableId)}
+              viewWideCompact={viewWideCompact}
+            />
           ))}
           {tables.map((table) => (
             <Table
@@ -754,12 +815,7 @@ export default function Canvas() {
               setHoveredTable={setHoveredTable}
               handleGripField={handleGripField}
               setLinkingLine={setLinkingLine}
-              onPointerDown={() => {
-                elementPointerDown = {
-                  element: table,
-                  type: ObjectType.TABLE,
-                };
-              }}
+              registerPointerDown={registerElementPointerDown}
             />
           ))}
           {linking && (
@@ -774,12 +830,7 @@ export default function Canvas() {
             <Note
               key={n.id}
               data={n}
-              onPointerDown={() => {
-                elementPointerDown = {
-                  element: n,
-                  type: ObjectType.NOTE,
-                };
-              }}
+              registerPointerDown={registerElementPointerDown}
             />
           ))}
           {bulkSelectRect.show && (

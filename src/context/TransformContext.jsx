@@ -1,4 +1,4 @@
-import { createContext, useCallback, useState } from "react";
+import { createContext, useCallback, useMemo, useState } from "react";
 
 export const TransformContext = createContext(null);
 
@@ -38,8 +38,13 @@ export default function TransformContextProvider({ children }) {
     [setTransformInternal],
   );
 
+  const value = useMemo(
+    () => ({ transform, setTransform }),
+    [transform, setTransform],
+  );
+
   return (
-    <TransformContext.Provider value={{ transform, setTransform }}>
+    <TransformContext.Provider value={value}>
       {children}
     </TransformContext.Provider>
   );

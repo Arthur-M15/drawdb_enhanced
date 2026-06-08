@@ -1,26 +1,45 @@
-import { useMemo, useRef, useState, useEffect } from "react";
-import { Cardinality, ObjectType, Tab } from "../../data/constants";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Cardinality,
+  ObjectType,
+  Tab,
+  COMPACT_FIELDS_THRESHOLD,
+} from "../../data/constants";
 import { calcPath } from "../../utils/calcPath";
-import { useDiagram, useSettings, useLayout, useSelect } from "../../hooks";
+import { useSettings, useLayout, useSelect } from "../../hooks";
 import { useTranslation } from "react-i18next";
 import { SideSheet } from "@douyinfe/semi-ui";
 import RelationshipInfo from "../EditorSidePanel/RelationshipsTab/RelationshipInfo";
 
 const labelFontSize = 16;
 
-export default function Relationship({ data }) {
+function Relationship({ data, startTable, endTable, viewWideCompact }) {
   const { settings } = useSettings();
-  const { tables } = useDiagram();
   const { layout } = useLayout();
   const { selectedElement, setSelectedElement } = useSelect();
   const { t } = useTranslation();
 
+  // startTable / endTable are looked up once at the Canvas level and passed in.
+  // Their identity only changes when the specific table moves or its fields
+  // change — not when an unrelated table moves. Combined with React.memo on
+  // this component, dragging table X only re-renders the relationships that
+  // actually touch X.
   const pathValues = useMemo(() => {
-    const startTable = tables.find((t) => t.id === data.startTableId);
-    const endTable = tables.find((t) => t.id === data.endTableId);
-
     if (!startTable || !endTable || startTable.hidden || endTable.hidden)
       return null;
+
+    // A table is considered compacted on the canvas when either:
+    //   - its own field count is above COMPACT_FIELDS_THRESHOLD, or
+    //   - the whole view is above VIEW_COMPACT_COMPLEXITY_THRESHOLD
+    //     (viewWideCompact, computed in Canvas).
+    // While compacted, lines connect to the header (calcPath honors the
+    // `compacted` flag) instead of a specific field. The line position stays
+    // stable when the user hover-expands the table — the relation's name
+    // label remains the way to identify the field involved.
+    const startCompacted =
+      viewWideCompact || startTable.fields.length > COMPACT_FIELDS_THRESHOLD;
+    const endCompacted =
+      viewWideCompact || endTable.fields.length > COMPACT_FIELDS_THRESHOLD;
 
     return {
       startFieldIndex: startTable.fields.findIndex(
@@ -32,15 +51,17 @@ export default function Relationship({ data }) {
         y: startTable.y,
         comment: startTable.comment,
         fields: startTable.fields,
+        compacted: startCompacted,
       },
       endTable: {
         x: endTable.x,
         y: endTable.y,
         comment: endTable.comment,
         fields: endTable.fields,
+        compacted: endCompacted,
       },
     };
-  }, [tables, data]);
+  }, [startTable, endTable, data, viewWideCompact]);
 
   const pathRef = useRef();
   const labelRef = useRef();
@@ -193,6 +214,15 @@ export default function Relationship({ data }) {
     </>
   );
 }
+
+export default memo(Relationship, (prev, next) => {
+  return (
+    prev.data === next.data &&
+    prev.startTable === next.startTable &&
+    prev.endTable === next.endTable &&
+    prev.viewWideCompact === next.viewWideCompact
+  );
+});
 
 function CardinalityLabel({ x, y, text, r = 12, padding = 14 }) {
   const [textWidth, setTextWidth] = useState(0);

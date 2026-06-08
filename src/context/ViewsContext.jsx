@@ -1,4 +1,4 @@
-import { createContext, useState } from "react";
+import { createContext, useMemo, useState } from "react";
 import {
   useDiagram,
   useAreas,
@@ -119,21 +119,26 @@ export default function ViewsContextProvider({ children }) {
     setViews([...updated.slice(0, idx + 1), copy, ...updated.slice(idx + 1)]);
   };
 
+  const value = useMemo(
+    () => ({
+      views,
+      setViews,
+      activeViewId,
+      setActiveViewId,
+      switchView,
+      addView,
+      renameView,
+      deleteView,
+      duplicateView,
+    }),
+    // Handlers close over views/activeViewId and the live domain contexts
+    // (tables/relationships/notes/areas/transform). Refresh whenever any of
+    // those change so a tab-switch always serializes/hydrates the latest state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [views, activeViewId, tables, relationships, notes, areas, transform],
+  );
+
   return (
-    <ViewsContext.Provider
-      value={{
-        views,
-        setViews,
-        activeViewId,
-        setActiveViewId,
-        switchView,
-        addView,
-        renameView,
-        deleteView,
-        duplicateView,
-      }}
-    >
-      {children}
-    </ViewsContext.Provider>
+    <ViewsContext.Provider value={value}>{children}</ViewsContext.Provider>
   );
 }

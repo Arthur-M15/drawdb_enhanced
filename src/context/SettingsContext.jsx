@@ -1,4 +1,4 @@
-import { createContext, useEffect, useState } from "react";
+import { createContext, useEffect, useMemo, useState } from "react";
 import { tableWidth } from "../data/constants";
 
 const defaultSettings = {
@@ -36,8 +36,10 @@ export default function SettingsContextProvider({ children }) {
     localStorage.setItem("settings", JSON.stringify(settings));
   }, [settings]);
 
+  const value = useMemo(() => ({ settings, setSettings }), [settings]);
+
   return (
-    <SettingsContext.Provider value={{ settings, setSettings }}>
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   );

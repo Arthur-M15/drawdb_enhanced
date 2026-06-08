@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useEffect } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Action, ObjectType, Tab, State } from "../../data/constants";
 import { Input, Button, Popover } from "@douyinfe/semi-ui";
 import ColorPicker from "../EditorSidePanel/ColorPicker";
@@ -20,7 +20,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { noteWidth, noteRadius, noteFold } from "../../data/constants";
 
-export default function Note({ data, onPointerDown }) {
+function Note({ data, registerPointerDown }) {
   const [editField, setEditField] = useState({});
   const [hovered, setHovered] = useState(false);
   const [resizing, setResizing] = useState(false);
@@ -40,6 +40,11 @@ export default function Note({ data, onPointerDown }) {
     setBulkSelectedElements,
   } = useSelect();
   const initialColorRef = useRef(data.color);
+
+  const onPointerDown = useCallback(
+    () => registerPointerDown(data, ObjectType.NOTE),
+    [data, registerPointerDown],
+  );
 
   const handleColorPick = (color) => {
     setUndoStack((prev) => {
@@ -390,6 +395,7 @@ export default function Note({ data, onPointerDown }) {
         width={width}
         height={data.height}
         onPointerDown={onPointerDown}
+        style={{ contain: "layout style paint" }}
       >
         <div className="text-gray-900 select-none w-full h-full cursor-move px-3 py-2">
           <div className="flex justify-between gap-1 w-full">
@@ -529,3 +535,10 @@ export default function Note({ data, onPointerDown }) {
     </g>
   );
 }
+
+export default memo(Note, (prev, next) => {
+  return (
+    prev.data === next.data &&
+    prev.registerPointerDown === next.registerPointerDown
+  );
+});

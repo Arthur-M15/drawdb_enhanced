@@ -1,4 +1,4 @@
-import { createContext, useState, useCallback } from "react";
+import { createContext, useState, useCallback, useMemo } from "react";
 import {
   Action,
   ObjectType,
@@ -96,18 +96,20 @@ export default function NotesContextProvider({ children }) {
     );
   }, []);
 
+  const value = useMemo(
+    () => ({
+      notes,
+      setNotes,
+      updateNote,
+      addNote,
+      deleteNote,
+      notesCount: notes.length,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [notes, transform, selectedElement, updateNote],
+  );
+
   return (
-    <NotesContext.Provider
-      value={{
-        notes,
-        setNotes,
-        updateNote,
-        addNote,
-        deleteNote,
-        notesCount: notes.length,
-      }}
-    >
-      {children}
-    </NotesContext.Provider>
+    <NotesContext.Provider value={value}>{children}</NotesContext.Provider>
   );
 }

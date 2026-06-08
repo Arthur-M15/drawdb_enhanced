@@ -1,4 +1,4 @@
-import { createContext, useState } from "react";
+import { createContext, useMemo, useState } from "react";
 import { Action, DB, ObjectType, defaultBlue } from "../data/constants";
 import { useTransform, useUndoRedo, useSelect } from "../hooks";
 import { Toast } from "@douyinfe/semi-ui";
@@ -244,27 +244,44 @@ export default function DiagramContextProvider({ children }) {
     );
   };
 
+  // Sum of tables + total fields across all tables. Drives the view-wide
+  // auto-compaction (see VIEW_COMPACT_COMPLEXITY_THRESHOLD). Computed once
+  // per `tables` change rather than in every Table render.
+  const viewComplexity = useMemo(() => {
+    let total = tables.length;
+    for (const t of tables) total += t.fields?.length ?? 0;
+    return total;
+  }, [tables]);
+
+  const value = useMemo(
+    () => ({
+      tables,
+      setTables,
+      addTable,
+      updateTable,
+      updateField,
+      deleteField,
+      deleteTable,
+      relationships,
+      setRelationships,
+      addRelationship,
+      deleteRelationship,
+      updateRelationship,
+      database,
+      setDatabase,
+      tablesCount: tables.length,
+      relationshipsCount: relationships.length,
+      viewComplexity,
+    }),
+    // Handlers close over tables/relationships/transform/selectedElement/database,
+    // so the value must refresh whenever any of those change. Refreshing only on
+    // these (not on every parent render) is what we gain from useMemo.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tables, relationships, database, transform, selectedElement, viewComplexity],
+  );
+
   return (
-    <DiagramContext.Provider
-      value={{
-        tables,
-        setTables,
-        addTable,
-        updateTable,
-        updateField,
-        deleteField,
-        deleteTable,
-        relationships,
-        setRelationships,
-        addRelationship,
-        deleteRelationship,
-        updateRelationship,
-        database,
-        setDatabase,
-        tablesCount: tables.length,
-        relationshipsCount: relationships.length,
-      }}
-    >
+    <DiagramContext.Provider value={value}>
       {children}
     </DiagramContext.Provider>
   );

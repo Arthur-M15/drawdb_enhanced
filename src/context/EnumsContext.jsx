@@ -1,4 +1,4 @@
-import { createContext, useState } from "react";
+import { createContext, useMemo, useState } from "react";
 import { Action, ObjectType } from "../data/constants";
 import { Toast } from "@douyinfe/semi-ui";
 import { useTranslation } from "react-i18next";
@@ -73,18 +73,20 @@ export default function EnumsContextProvider({ children }) {
     );
   };
 
+  const value = useMemo(
+    () => ({
+      enums,
+      setEnums,
+      addEnum,
+      updateEnum,
+      deleteEnum,
+      enumsCount: enums.length,
+    }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [enums],
+  );
+
   return (
-    <EnumsContext.Provider
-      value={{
-        enums,
-        setEnums,
-        addEnum,
-        updateEnum,
-        deleteEnum,
-        enumsCount: enums.length,
-      }}
-    >
-      {children}
-    </EnumsContext.Provider>
+    <EnumsContext.Provider value={value}>{children}</EnumsContext.Provider>
   );
 }

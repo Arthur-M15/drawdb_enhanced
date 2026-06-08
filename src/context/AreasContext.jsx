@@ -1,5 +1,5 @@
 import { Toast } from "@douyinfe/semi-ui";
-import { createContext, useState } from "react";
+import { createContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Action, ObjectType, defaultBlue } from "../data/constants";
 import { useSelect, useTransform, useUndoRedo } from "../hooks";
@@ -91,18 +91,21 @@ export default function AreasContextProvider({ children }) {
     );
   };
 
+  const value = useMemo(
+    () => ({
+      areas,
+      setAreas,
+      updateArea,
+      addArea,
+      deleteArea,
+      areasCount: areas.length,
+    }),
+    // Handlers close over areas/transform/selectedElement, so refresh on those.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [areas, transform, selectedElement],
+  );
+
   return (
-    <AreasContext.Provider
-      value={{
-        areas,
-        setAreas,
-        updateArea,
-        addArea,
-        deleteArea,
-        areasCount: areas.length,
-      }}
-    >
-      {children}
-    </AreasContext.Provider>
+    <AreasContext.Provider value={value}>{children}</AreasContext.Provider>
   );
 }

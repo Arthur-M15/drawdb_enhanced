@@ -1,5 +1,12 @@
 import { useTransform } from "../hooks";
-import { createContext, useCallback, useMemo, useRef, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useEventListener, useResizeObserver } from "usehooks-ts";
 
 export const CanvasContext = createContext({
@@ -118,44 +125,83 @@ export function CanvasContextProvider({ children, ...attrs }) {
   );
   const [pointerStyle, setPointerStyle] = useState("default");
 
+  // Coalesce raw pointer events to at most one state update per animation
+  // frame. Without this, a fast cursor floods setPointerScreenCoords (~480 Hz
+  // on a 240 Hz mouse), each one re-rendering Canvas + everything that reads
+  // useCanvas(). With RAF coalescing we cap at the display refresh rate.
+  const pendingCoordsRef = useRef(null);
+  const rafIdRef = useRef(0);
+
+  const flushPointerCoords = useCallback(() => {
+    rafIdRef.current = 0;
+    const next = pendingCoordsRef.current;
+    if (!next) return;
+    pendingCoordsRef.current = null;
+    setPointerScreenCoords(next);
+  }, []);
+
   /**
    * @param {PointerEvent} e
    */
-  function detectPointerMovement(e) {
-    const targetElm = /** @type {HTMLElement | null} */ (e.currentTarget);
-    if (!e.isPrimary || !targetElm) return;
+  const detectPointerMovement = useCallback(
+    (e) => {
+      const targetElm = /** @type {HTMLElement | null} */ (e.currentTarget);
+      if (!e.isPrimary || !targetElm) return;
 
-    const canvasBounds = targetElm.getBoundingClientRect();
+      const canvasBounds = targetElm.getBoundingClientRect();
 
-    setPointerScreenCoords({
-      x: e.clientX - canvasBounds.left,
-      y: e.clientY - canvasBounds.top,
-    });
-  }
+      pendingCoordsRef.current = {
+        x: e.clientX - canvasBounds.left,
+        y: e.clientY - canvasBounds.top,
+      };
+      if (rafIdRef.current === 0) {
+        rafIdRef.current = requestAnimationFrame(flushPointerCoords);
+      }
+    },
+    [flushPointerCoords],
+  );
+
+  useEffect(
+    () => () => {
+      if (rafIdRef.current !== 0) cancelAnimationFrame(rafIdRef.current);
+    },
+    [],
+  );
 
   // Important for touch screen devices!
   useEventListener("pointerdown", detectPointerMovement, canvasWrapRef);
 
   useEventListener("pointermove", detectPointerMovement, canvasWrapRef);
 
-  const contextValue = {
-    canvas: {
+  const contextValue = useMemo(
+    () => ({
+      canvas: {
+        screenSize,
+        viewBox,
+      },
+      coords: {
+        toDiagramSpace,
+        toScreenSpace,
+      },
+      pointer: {
+        spaces: {
+          screen: pointerScreenCoords,
+          diagram: pointerDiagramCoords,
+        },
+        style: pointerStyle,
+        setStyle: setPointerStyle,
+      },
+    }),
+    [
       screenSize,
       viewBox,
-    },
-    coords: {
       toDiagramSpace,
       toScreenSpace,
-    },
-    pointer: {
-      spaces: {
-        screen: pointerScreenCoords,
-        diagram: pointerDiagramCoords,
-      },
-      style: pointerStyle,
-      setStyle: setPointerStyle,
-    },
-  };
+      pointerScreenCoords,
+      pointerDiagramCoords,
+      pointerStyle,
+    ],
+  );
 
   return (
     <CanvasContext.Provider value={contextValue}>
@@ -163,5 +209,5 @@ export function CanvasContextProvider({ children, ...attrs }) {
         {children}
       </div>
     </CanvasContext.Provider>
-  )
+  );
 }
