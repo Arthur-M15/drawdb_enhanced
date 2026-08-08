@@ -18,6 +18,7 @@ import axios from "axios";
 import { languages } from "../i18n/i18n";
 import { Tweet } from "react-tweet";
 import { socials } from "../data/socials";
+import ErrorBoundary from "../components/ErrorBoundary";
 
 function shortenNumber(number) {
   if (number < 1000) return number;
@@ -224,10 +225,18 @@ export default function LandingPage() {
           data-theme="light"
           className="grid grid-cols-2 place-items-center md:grid-cols-1"
         >
-          <Tweet id="1816111365125218343" />
-          <Tweet id="1817933406337905021" />
-          <Tweet id="1785457354777006524" />
-          <Tweet id="1776842268042756248" />
+          <ErrorBoundary>
+            <Tweet id="1816111365125218343" />
+          </ErrorBoundary>
+          <ErrorBoundary>
+            <Tweet id="1817933406337905021" />
+          </ErrorBoundary>
+          <ErrorBoundary>
+            <Tweet id="1785457354777006524" />
+          </ErrorBoundary>
+          <ErrorBoundary>
+            <Tweet id="1776842268042756248" />
+          </ErrorBoundary>
         </div>
       </div>
 
