@@ -94,6 +94,7 @@ export default function Canvas() {
     tableId: null,
     fieldId: null,
   });
+  const [expandedTableIds, setExpandedTableIds] = useState(() => new Set());
   const [panning, setPanning] = useState({
     isPanning: false,
     panStart: { x: 0, y: 0 },
@@ -139,8 +140,23 @@ export default function Canvas() {
   // Stable callback handed to memoized children. The child binds (element,type)
   // at call time, so the child can build a useCallback handler tied to its own
   // `data` identity instead of receiving a fresh inline arrow every parent render.
-  const registerElementPointerDown = useCallback((element, type) => {
+  const registerElementPointerDown = useCallback((element, type, event) => {
     elementPointerDownRef.current = { element, type };
+    if (
+      type === ObjectType.TABLE &&
+      event.button === 0 &&
+      (event.ctrlKey || event.metaKey)
+    ) {
+      setExpandedTableIds((previous) => {
+        const next = new Set(previous);
+        if (next.has(element.id)) {
+          next.delete(element.id);
+        } else {
+          next.add(element.id);
+        }
+        return next;
+      });
+    }
   }, []);
 
   const isSameElement = (el1, el2) => {
@@ -812,6 +828,7 @@ export default function Canvas() {
             <Table
               key={table.id}
               tableData={table}
+              forceExpanded={expandedTableIds.has(table.id)}
               setHoveredTable={setHoveredTable}
               handleGripField={handleGripField}
               setLinkingLine={setLinkingLine}

@@ -1,11 +1,17 @@
 import { Collapse, Button } from "@douyinfe/semi-ui";
-import { IconEyeOpened, IconEyeClosed } from "@douyinfe/semi-icons";
+import {
+  IconEyeOpened,
+  IconEyeClosed,
+  IconMapPinStroked,
+} from "@douyinfe/semi-icons";
 import { IconPlus } from "@douyinfe/semi-icons";
 import {
   useSelect,
   useDiagram,
   useSaveState,
   useLayout,
+  useSettings,
+  useTransform,
   useUndoRedo,
 } from "../../../hooks";
 import { Action, ObjectType, State } from "../../../data/constants";
@@ -75,8 +81,21 @@ export default function TablesTab() {
 function TableListItem({ table }) {
   const { layout } = useLayout();
   const { updateTable } = useDiagram();
+  const { settings } = useSettings();
+  const { setTransform } = useTransform();
   const { setUndoStack, setRedoStack } = useUndoRedo();
   const { t } = useTranslation();
+
+  const centerOnTable = (event) => {
+    event.stopPropagation();
+    setTransform((previous) => ({
+      ...previous,
+      pan: {
+        x: table.x + settings.tableWidth / 2,
+        y: table.y + 100,
+      },
+    }));
+  };
 
   const toggleTableVisibility = (e) => {
     e.stopPropagation();
@@ -111,14 +130,24 @@ function TableListItem({ table }) {
                 {table.name}
               </div>
             </div>
-            <Button
-              size="small"
-              theme="borderless"
-              type="tertiary"
-              onClick={toggleTableVisibility}
-              icon={table.hidden ? <IconEyeClosed /> : <IconEyeOpened />}
-              className="me-2"
-            />
+            <div className="flex items-center me-2">
+              <Button
+                size="small"
+                theme="borderless"
+                type="tertiary"
+                title={t("center_on_table")}
+                aria-label={t("center_on_table")}
+                onClick={centerOnTable}
+                icon={<IconMapPinStroked />}
+              />
+              <Button
+                size="small"
+                theme="borderless"
+                type="tertiary"
+                onClick={toggleTableVisibility}
+                icon={table.hidden ? <IconEyeClosed /> : <IconEyeOpened />}
+              />
+            </div>
             <div
               className="w-1 h-full absolute top-0 left-0 bottom-0"
               style={{ backgroundColor: table.color }}

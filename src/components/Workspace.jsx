@@ -49,7 +49,7 @@ export const IdContext = createContext({
   setVersion: () => {},
 });
 
-const SIDEPANEL_MIN_WIDTH = 384;
+const SIDEPANEL_MIN_WIDTH = 280;
 
 // Outer shell: provides ViewsContext so WorkSpaceInner can call useViews().
 export default function WorkSpace() {
@@ -616,6 +616,22 @@ function WorkSpaceInner() {
         onOk={() => {
           if (selectedDb === "") return;
           setDatabase(selectedDb);
+          if (views.length === 0) {
+            const viewId = crypto.randomUUID();
+            setViews([
+              {
+                id: viewId,
+                name: "Main",
+                tables: [],
+                references: [],
+                notes: [],
+                areas: [],
+                pan: { x: 0, y: 0 },
+                zoom: 1,
+              },
+            ]);
+            setActiveViewId(viewId);
+          }
           setShowSelectDbModal(false);
         }}
         okButtonProps={{ disabled: selectedDb === "" }}

@@ -23,13 +23,14 @@ import FieldRow from "./FieldRow";
 
 function Table({
   tableData,
+  forceExpanded,
   registerPointerDown,
   setHoveredTable,
   handleGripField,
   setLinkingLine,
 }) {
   const onPointerDown = useCallback(
-    () => registerPointerDown(tableData, ObjectType.TABLE),
+    (event) => registerPointerDown(tableData, ObjectType.TABLE, event),
     [tableData, registerPointerDown],
   );
   const [hoveredField, setHoveredField] = useState(null);
@@ -82,7 +83,8 @@ function Table({
     );
   }, [selectedElement, tableData, bulkSelectedElements]);
 
-  const showFields = !autoCompacted || isMouseOver || isSelected;
+  const showFields =
+    !autoCompacted || isMouseOver || isSelected || forceExpanded;
 
   // Re-measure the table height only when one of its layout inputs actually
   // changes (fields/comment/width/showComments) — not on every render caused
@@ -438,6 +440,7 @@ function Table({
 export default memo(Table, (prev, next) => {
   return (
     prev.tableData === next.tableData &&
+    prev.forceExpanded === next.forceExpanded &&
     prev.registerPointerDown === next.registerPointerDown &&
     prev.setHoveredTable === next.setHoveredTable &&
     prev.handleGripField === next.handleGripField &&

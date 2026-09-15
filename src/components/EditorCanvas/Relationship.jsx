@@ -1,4 +1,11 @@
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Cardinality,
   ObjectType,
@@ -65,6 +72,51 @@ function Relationship({ data, startTable, endTable, viewWideCompact }) {
 
   const pathRef = useRef();
   const labelRef = useRef();
+  const [geometry, setGeometry] = useState({
+    labelX: 0,
+    labelY: 0,
+    cardinalityStartX: 0,
+    cardinalityStartY: 0,
+    cardinalityEndX: 0,
+    cardinalityEndY: 0,
+    ready: false,
+  });
+
+  const path = useMemo(
+    () =>
+      pathValues
+        ? calcPath(
+            pathValues,
+            settings.tableWidth,
+            1,
+            settings.showComments,
+          )
+        : "",
+    [pathValues, settings.showComments, settings.tableWidth],
+  );
+
+  useLayoutEffect(() => {
+    if (!pathRef.current || !path) return;
+
+    const pathLength = pathRef.current.getTotalLength();
+    const labelBounds = labelRef.current?.getBBox();
+    const labelPoint = pathRef.current.getPointAtLength(pathLength / 2);
+    const cardinalityOffset = 28;
+    const startPoint = pathRef.current.getPointAtLength(cardinalityOffset);
+    const endPoint = pathRef.current.getPointAtLength(
+      pathLength - cardinalityOffset,
+    );
+
+    setGeometry({
+      labelX: labelPoint.x - (labelBounds?.width ?? 0) / 2,
+      labelY: labelPoint.y + (labelBounds?.height ?? 0) / 2,
+      cardinalityStartX: startPoint.x,
+      cardinalityStartY: startPoint.y,
+      cardinalityEndX: endPoint.x,
+      cardinalityEndY: endPoint.y,
+      ready: true,
+    });
+  }, [data.name, path, settings.showRelationshipLabels]);
 
   let cardinalityStart = "1";
   let cardinalityEnd = "1";
@@ -88,35 +140,6 @@ function Relationship({ data, startTable, endTable, viewWideCompact }) {
       break;
     default:
       break;
-  }
-
-  let cardinalityStartX = 0;
-  let cardinalityEndX = 0;
-  let cardinalityStartY = 0;
-  let cardinalityEndY = 0;
-  let labelX = 0;
-  let labelY = 0;
-
-  let labelWidth = labelRef.current?.getBBox().width ?? 0;
-  let labelHeight = labelRef.current?.getBBox().height ?? 0;
-
-  const cardinalityOffset = 28;
-
-  if (pathRef.current) {
-    const pathLength = pathRef.current.getTotalLength();
-
-    const labelPoint = pathRef.current.getPointAtLength(pathLength / 2);
-    labelX = labelPoint.x - (labelWidth ?? 0) / 2;
-    labelY = labelPoint.y + (labelHeight ?? 0) / 2;
-
-    const point1 = pathRef.current.getPointAtLength(cardinalityOffset);
-    cardinalityStartX = point1.x;
-    cardinalityStartY = point1.y;
-    const point2 = pathRef.current.getPointAtLength(
-      pathLength - cardinalityOffset,
-    );
-    cardinalityEndX = point2.x;
-    cardinalityEndY = point2.y;
   }
 
   const edit = () => {
@@ -149,7 +172,7 @@ function Relationship({ data, startTable, endTable, viewWideCompact }) {
       <g className="select-none group" onDoubleClick={edit}>
         {/* invisible wider path for better hover ux */}
         <path
-          d={calcPath(pathValues, settings.tableWidth, 1, settings.showComments)}
+          d={path}
           fill="none"
           stroke="transparent"
           strokeWidth={12}
@@ -157,15 +180,15 @@ function Relationship({ data, startTable, endTable, viewWideCompact }) {
         />
         <path
           ref={pathRef}
-          d={calcPath(pathValues, settings.tableWidth, 1, settings.showComments)}
+          d={path}
           className="relationship-path"
           fill="none"
           cursor="pointer"
         />
         {settings.showRelationshipLabels && (
           <text
-            x={labelX}
-            y={labelY}
+            x={geometry.labelX}
+            y={geometry.labelY}
             fill={settings.mode === "dark" ? "lightgrey" : "#333"}
             fontSize={labelFontSize}
             fontWeight={500}
@@ -175,16 +198,16 @@ function Relationship({ data, startTable, endTable, viewWideCompact }) {
             {data.name}
           </text>
         )}
-        {pathRef.current && settings.showCardinality && (
+        {geometry.ready && settings.showCardinality && (
           <>
             <CardinalityLabel
-              x={cardinalityStartX}
-              y={cardinalityStartY}
+              x={geometry.cardinalityStartX}
+              y={geometry.cardinalityStartY}
               text={cardinalityStart}
             />
             <CardinalityLabel
-              x={cardinalityEndX}
-              y={cardinalityEndY}
+              x={geometry.cardinalityEndX}
+              y={geometry.cardinalityEndY}
               text={cardinalityEnd}
             />
           </>

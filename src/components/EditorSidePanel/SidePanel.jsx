@@ -94,7 +94,7 @@ export default function SidePanel({ width, resize, setResize }) {
     <div className="flex h-full">
       <div
         className="flex flex-col h-full relative border-r border-color"
-        style={{ width: `${width}px` }}
+        style={{ width: `min(${width}px, 30vw)` }}
       >
         <div className="h-full flex-1 overflow-y-auto">
           {layout.dbmlEditor ? (
