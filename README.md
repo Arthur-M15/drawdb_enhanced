@@ -61,6 +61,13 @@ docker build -t drawdb .
 docker run -p 3000:80 drawdb
 ```
 
+### Run project
+
+```bash
+npm run dev
+```
+
+
 If you want to enable sharing, set up the [server](https://github.com/drawdb-io/drawdb-server) and environment variables according to `.env.sample`. This is optional unless you need to share files.
 
 ## Contributing
